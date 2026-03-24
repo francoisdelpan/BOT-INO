@@ -6,49 +6,321 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; padding: 20px; }
-    .input-row { display: flex; gap: 10px; margin-bottom: 20px; }
-    .input-row > div { flex: 1; }
-    .step-card { border: 2px solid; border-radius: 10px; padding: 15px; margin-bottom: 20px; background-color: #f9f9f9; }
-    .step-title { font-weight: bold; font-size: 1.2em; display: flex; justify-content: space-between; align-items: center; }
-    .skip-btn { font-size: 0.8em; }
-    #loaderOverlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(255,255,255,0.85); z-index: 9999; justify-content: center; align-items: center; flex-direction: column; }
-    .skipped-step { opacity: 0.5; pointer-events: none; }
-    .checkpoint-line .amount-input, .checkpoint-line .quantity-input { width: 80px; margin-left: 8px; }
+    :root {
+      --brand: #2F5AEA;
+      --brand-dark: #2447bb;
+      --brand-soft: #eef3ff;
+      --text: #162033;
+      --muted: #6b7280;
+      --border: #d9e2ff;
+      --danger: #c62828;
+      --surface: #f8faff;
+      --success-soft: #e8f7e4;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      background: #fff;
+      color: var(--text);
+    }
+    .page {
+      padding: 18px 22px 18px;
+    }
+    .section {
+      margin-bottom: 18px;
+    }
+    .section-title {
+      display: block;
+      margin-bottom: 10px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--brand);
+    }
+    .input-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+    .field-card {
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #fff;
+    }
+    .field-card label,
+    .modal-body label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .form-control,
+    .form-select {
+      padding: 11px 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #fff;
+      color: var(--text);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .form-control:focus,
+    .form-select:focus {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 4px rgba(47, 90, 234, 0.12);
+    }
+    .steps-wrap {
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--surface);
+    }
+    .step-card {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px;
+      margin-bottom: 14px;
+      background: #fff;
+      box-shadow: 0 8px 24px rgba(47, 90, 234, 0.06);
+    }
+    .step-card:last-child { margin-bottom: 0; }
+    .step-title {
+      margin-bottom: 12px;
+      font-weight: 700;
+      font-size: 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      color: var(--text);
+    }
+    .skip-btn {
+      width: auto;
+      font-size: 12px;
+      padding: 8px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--muted);
+    }
+    .skip-btn:hover {
+      border-color: var(--brand);
+      color: var(--brand);
+      background: var(--brand-soft);
+    }
+    .checkpoint-line {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #fff;
+    }
+    .checkpoint-line + .checkpoint-line {
+      margin-top: 10px;
+    }
+    .checkpoint-line .small {
+      font-size: 13px !important;
+      line-height: 1.45;
+      color: var(--text);
+    }
+    .checkpoint-line .amount-input,
+    .checkpoint-line .quantity-input {
+      width: 92px;
+      margin-left: 0;
+    }
+    .btn-outline-success,
+    .btn-outline-secondary,
+    .btn-info {
+      border-radius: 12px;
+      font-weight: 700;
+    }
+    .btn-outline-success {
+      border-color: #a9d4b1;
+      color: #2e7d32;
+      background: #fff;
+    }
+    .btn-success,
+    .btn-outline-success:hover {
+      background: #2e7d32;
+      border-color: #2e7d32;
+      color: #fff;
+    }
+    .btn-outline-secondary {
+      border-color: var(--border);
+      color: var(--muted);
+      background: #fff;
+    }
+    .btn-danger,
+    .btn-outline-secondary:hover {
+      background: #fff5f5;
+      border-color: #f4c7c7;
+      color: var(--danger);
+    }
+    .btn-info {
+      border: 0;
+      background: var(--brand);
+      color: #fff;
+      box-shadow: 0 10px 24px rgba(47, 90, 234, 0.18);
+    }
+    .btn-info:hover {
+      background: var(--brand-dark);
+      color: #fff;
+    }
+    .submit-wrap {
+      margin-top: 18px;
+    }
+    .submit-btn {
+      width: 100%;
+      padding: 13px 16px;
+      border: 0;
+      border-radius: 14px;
+      background: var(--brand);
+      color: #fff;
+      font-weight: 700;
+      box-shadow: 0 10px 24px rgba(47, 90, 234, 0.22);
+      transition: transform 0.15s ease, background 0.15s ease;
+    }
+    .submit-btn:hover:not(:disabled) {
+      background: var(--brand-dark);
+      transform: translateY(-1px);
+    }
+    .submit-btn:disabled {
+      cursor: wait;
+      opacity: 0.7;
+      transform: none;
+    }
+    .signature {
+      margin-top: 14px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--brand);
+    }
+    .signature a {
+      color: inherit;
+      text-decoration: none;
+      font-weight: 700;
+    }
+    .signature a:hover {
+      text-decoration: none;
+    }
+    #loaderOverlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(255,255,255,0.85);
+      z-index: 9999;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+    }
+    #loaderOverlay .spinner-border {
+      width: 2.5rem !important;
+      height: 2.5rem !important;
+      border-width: 0.22rem;
+      color: var(--brand) !important;
+    }
+    #loaderMessage {
+      color: var(--brand) !important;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .skipped-step {
+      opacity: 0.42;
+      filter: grayscale(0.22);
+      pointer-events: none;
+    }
+    .skipped-step .checkpoint-line {
+      background: #f3f6fb;
+      border-color: #d8dfef;
+    }
     .btn-disabled-fake { opacity: 0.5; cursor: not-allowed; border: none !important; background: transparent !important; }
-    .checkpoint-line.br-saved { background-color: #e8f7e4 !important; }
-    .checkpoint-line.chq-saved { background-color: #e8f7e4 !important; }
+    .checkpoint-line.br-saved,
+    .checkpoint-line.chq-saved { background-color: var(--success-soft) !important; }
+    .modal-content {
+      border: 1px solid var(--border);
+      border-radius: 18px;
+    }
+    .modal-header,
+    .modal-footer {
+      border-color: var(--border);
+    }
+    .modal-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .modal-footer .btn-primary {
+      border: 0;
+      border-radius: 12px;
+      background: var(--brand);
+      box-shadow: 0 10px 24px rgba(47, 90, 234, 0.18);
+    }
+    .modal-footer .btn-primary:hover {
+      background: var(--brand-dark);
+    }
+    @media (max-width: 768px) {
+      .page { padding: 16px; }
+      .input-row { grid-template-columns: 1fr; }
+      .step-title { align-items: flex-start; flex-direction: column; }
+      .checkpoint-line {
+        flex-wrap: wrap;
+        align-items: flex-start !important;
+      }
+      .checkpoint-line .amount-input,
+      .checkpoint-line .quantity-input {
+        width: 100%;
+      }
+    }
   </style>
 </head>
 <body onload="loadAddEndShiftForm()">
-
-  <div class="input-row align-items-end">
-    <div>
-      <label class="form-label">Date :</label>
-      <input type="date" id="incidentDate" class="form-control">
+  <div class="page">
+    <div class="section">
+      <span class="section-title">Contexte</span>
+      <div class="input-row">
+        <div class="field-card">
+          <label class="form-label">Date</label>
+          <input type="date" id="incidentDate" class="form-control">
+        </div>
+        <div class="field-card">
+          <label class="form-label">N° de caisse</label>
+          <select id="caisseInput" class="form-select">
+            <option value="">Sélectionnez une caisse…</option>
+            <!-- on injecte ici les options via JS -->
+          </select>
+        </div>
+        <div class="field-card">
+          <label class="form-label">Superviseur</label>
+          <input type="text" id="supervisorInput" class="form-control" list="supervisorList" placeholder="Prénom NOM">
+          <datalist id="supervisorList"></datalist>
+        </div>
+      </div>
     </div>
-    <div>
-      <label class="form-label">N° de caisse :</label>
-      <select id="caisseInput" class="form-select">
-        <option value="">Sélectionnez une caisse…</option>
-        <!-- on injecte ici les options via JS -->
-      </select>
+
+    <div class="section">
+      <span class="section-title">Contrôles</span>
+      <div class="steps-wrap">
+        <div id="stepContainer"></div>
+      </div>
     </div>
-    <div>
-      <label class="form-label">Superviseur :</label>
-      <input type="text" id="supervisorInput" class="form-control" list="supervisorList" placeholder="Prénom NOM">
-      <datalist id="supervisorList"></datalist>
+
+    <div class="submit-wrap">
+      <button id="submitBtn" class="submit-btn" onclick="submitEndShift()" disabled>
+        ✅ Valider la fin de poste
+      </button>
     </div>
-  </div>
 
-  <hr>
-
-  <div id="stepContainer"></div>
-
-  <div class="text-end mt-3">
-    <button id="submitBtn" class="btn btn-success" onclick="submitEndShift()" disabled>
-      ✅ Valider la fin de poste
-    </button>
+    <div class="signature">
+      <span>Made with &lt;3 by <a href="https://utema.fr" target="_blank" rel="noopener noreferrer">Utema</a>. 2026</span>
+    </div>
   </div>
 
   <!-- Modal BR retirée du flux actif. La logique dépréciée est conservée côté JS pour référence. -->
