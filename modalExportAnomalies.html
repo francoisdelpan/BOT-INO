@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Export des Anomalies</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    #loaderOverlay {
+      display: none;
+      position: fixed; top:0; left:0;
+      width:100%; height:100%;
+      background:rgba(255,255,255,0.85);
+      z-index:9999;
+      justify-content:center; align-items:center;
+      flex-direction:column;
+    }
+    .filter-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .filter-row > * { margin-bottom:0; }
+    .filter-row input[type="date"],
+    .filter-row select {
+      flex:1;
+    }
+    .dropdown-menu {
+      max-height: 200px;    /* hauteur maximum, à ajuster */
+      overflow-y: auto;     /* scroll vertical si nécessaire */
+    }
+    .dropdown-item {
+      display: flex;
+      align-items: center;
+      padding: 0.5rem 1rem;    /* plus d’espace clique */
+      cursor: pointer;
+    }
+    .dropdown-item:hover {
+      background-color: #f0f0f0;  /* léger feedback au survol */
+    }
+    .body input[type="checkbox"] {
+      margin: -2;
+      margin-right: 0.75rem;      /* assez d’espace entre case et texte */
+      width: 1.2rem;
+      height: 1.2rem;
+    }
+    .dropdown-item input[type="checkbox"] {
+      margin: 0;
+    }
+  </style>
+</head>
+<body class="body" onload="loadExportAnomaliesModal()">
+  <div class="p-3">
+    <!-- Intervalle de dates -->
+    <div class="filter-row">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="toggleRange" onchange="onToggleRange()">
+        <label class="form-check-label" for="toggleRange">Intervalle</label>
+      </div>
+      <input type="date" id="dateFrom" class="form-control">
+      <input type="date" id="dateTo" class="form-control" disabled>
+    </div>
+
+    <!-- Filtrer par erreur -->
+    <div class="filter-row">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="toggleError" onchange="onToggleError()">
+        <label class="form-check-label" for="toggleError">Erreur</label>
+      </div>
+      <div class="dropdown me-2">
+        <button id="errorDropdownBtn"
+                class="btn btn-outline-secondary dropdown-toggle"
+                type="button"
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+                disabled>
+          Toutes les erreurs
+        </button>
+        <div id="errorDropdownMenu" class="dropdown-menu p-2">
+          <!-- checkboxes injected here -->
+        </div>
+      </div>
+    </div>
+    <small id="errorDesc" class="text-muted d-block mb-3"></small>
+
+
+    <!-- Filtrer par caisse -->
+    <div class="filter-row">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="toggleCaisse" onchange="onToggleCaisse()">
+        <label class="form-check-label" for="toggleCaisse">Caisse</label>
+      </div>
+      <select id="caisseSelect" class="form-select" disabled>Toutes les caisses</select>
+    </div>
+
+    <button id="exportBtn" class="btn btn-primary" onclick="exportAnomalies()" disabled>Extraire</button>
+  </div>
+
+  <!-- Loader overlay -->
+  <div id="loaderOverlay">
+    <div class="spinner-border text-primary" style="width:3rem; height:3rem;"></div>
+    <div id="loaderMessage" class="mt-3 text-primary fw-bold"></div>
+  </div>
+
+  <script>
+    // full-screen loader helpers
+    function showLoader(msg) {
+      document.getElementById('loaderMessage').textContent = msg;
+      document.getElementById('loaderOverlay').style.display = 'flex';
+    }
+    function hideLoader() {
+      document.getElementById('loaderOverlay').style.display = 'none';
+    }
+
+    // map from errorKey → { payKey, label, desc }
+    let errorMeta = {};
+
+    // 1) initial fetch of errors + caisses
+    function loadExportAnomaliesModal() {
+      showLoader("Chargement des filtres…");
+      google.script.run
+        .withSuccessHandler(data => {
+          populateErrorFilter(data.errorTypes);
+          populateCaisseList(data.operators);
+          hideLoader();
+          updateExportButton();
+        })
+        .withFailureHandler(err => {
+          hideLoader();
+          alert("Erreur chargement filtres : " + err.message);
+        })
+        .loadIncidentFormLists();
+    }
+
+    // called by server: data.errorTypes = [ {payKey,label,key,explication}, … ]
+    function populateErrorFilter(errorTypes) {
+      const menu = document.getElementById('errorDropdownMenu');
+      menu.innerHTML = '';
+      errorMeta = {};
+
+      errorTypes.forEach(e => {
+        // stash everything
+        errorMeta[e.key] = {
+          payKey: e.payKey,
+          errorKey: e.key,
+          label:  e.label,
+          desc:   e.explication
+        };
+
+        // build a form-check item
+        const wrapper = document.createElement('div');
+        wrapper.className = 'form-check dropdown-item';
+
+        const cb = document.createElement('input');
+        cb.type      = 'checkbox';
+        cb.className = 'form-check-input me-2 error-checkbox';
+        cb.id        = `err-${e.key}`;
+        cb.value     = e.key;
+        cb.addEventListener('change', updateSelectedErrors);
+
+        const lbl = document.createElement('label');
+        lbl.htmlFor      = cb.id;
+        lbl.className    = 'form-check-label';
+        lbl.textContent  = e.key;
+
+        // document.getElementById('errorDesc').textContent = e.label;
+
+        wrapper.appendChild(cb);
+        wrapper.appendChild(lbl);
+        menu.appendChild(wrapper);
+      });
+    }
+
+    // populate caisse dropdown
+    function populateCaisseList(ops) {
+      const sel = document.getElementById('caisseSelect');
+      sel.innerHTML = '';
+      // placeholder "Toutes les caisses"
+      sel.insertAdjacentHTML('beforeend',
+        '<option value="" selected>Toutes les caisses</option>'
+      );
+      ops.forEach(o => {
+        const opt = document.createElement('option');
+        opt.value = o.label;
+        opt.text  = o.label;
+        sel.appendChild(opt);
+      });
+    }
+
+    // toggle handlers
+    function onToggleRange() {
+      const checked = document.getElementById('toggleRange').checked;
+      // si Intervalle coché, on active dateTo, sinon on la désactive et on vide sa valeur
+      const dateTo = document.getElementById('dateTo');
+      dateTo.disabled = !checked;
+      if (!checked) dateTo.value = '';
+      updateExportButton();
+    }
+
+    function onToggleError() {
+      const btn = document.getElementById('errorDropdownBtn');
+      const enabled = document.getElementById('toggleError').checked;
+      btn.disabled = !enabled;
+
+      // placeholder
+      btn.textContent = enabled
+        ? 'Sélectionner les erreurs'
+        : 'Toutes les erreurs';
+
+      // si on désactive, on décoche tout
+      if (!enabled) {
+        document.querySelectorAll('.error-checkbox')
+          .forEach(cb => cb.checked = false);
+        document.getElementById('errorDesc').textContent = '';
+      }
+
+      updateExportButton();
+    }
+
+    function onToggleCaisse() {
+      const sel = document.getElementById('caisseSelect');
+      const enabled = document.getElementById('toggleCaisse').checked;
+      sel.disabled = !enabled;
+
+      // placeholder par défaut
+      if (!enabled) {
+        sel.innerHTML = '<option value="" selected>Toutes les caisses</option>';
+        // puis on re-populera après via populateCaisseList
+      }
+
+      updateExportButton();
+    }
+    
+    // return array of selected errorKeys
+    function getSelectedErrorKeys() {
+      return Array.from(document.querySelectorAll('.error-checkbox'))
+        .filter(cb => cb.checked)
+        .map(cb => cb.value);
+    }
+
+    function getSelectedError() {
+      return getSelectedErrorKeys().map(ek => errorMeta[ek]);
+    }
+
+    // whenever the user checks/unchecks an error:
+    function updateSelectedErrors() {
+      const keys = getSelectedErrorKeys();
+      const btn  = document.getElementById('errorDropdownBtn');
+
+      // 1) update button text
+      if (keys.length === 0) {
+        btn.textContent = 'Toutes les erreurs';
+      }
+      else {
+        btn.textContent = 'Sélectionné ci-dessous';
+      }
+
+      // 2) show the explanation of the first selected
+      document.getElementById('errorDesc').textContent = (keys.length === 1) ? errorMeta[keys[0]].errorKey : keys.map(k => errorMeta[k].errorKey).join(', ');
+
+      // 3) re-evaluate whether "Extraire" should be enabled
+      updateExportButton();
+    }
+
+    // enable/disable “Extraire” button
+    /*function updateExportButton() {
+      const from   = !!document.getElementById('dateFrom').value;
+      const rangeOk= !document.getElementById('toggleRange').checked 
+        || !!document.getElementById('dateTo').value;
+      const errOn  = document.getElementById('toggleError').checked;
+      const errOk  = !errOn || getSelectedErrorKeys().length > 0;
+      const cOn    = document.getElementById('toggleCaisse').checked;
+      const cOk    = !cOn || !!document.getElementById('caisseSelect').value;
+      document.getElementById('exportBtn').disabled = !(from && rangeOk && errOk && cOk);
+    }*/
+
+    function updateExportButton() {
+      const fromVal  = document.getElementById('dateFrom').value;
+      const hasFrom  = !!fromVal;
+
+      // Si on a coch é l’intervalle, on exige aussi une dateTo
+      const rangeOn  = document.getElementById('toggleRange').checked;
+      const hasTo    = !!document.getElementById('dateTo').value;
+      const rangeOk  = !rangeOn || hasTo;
+
+      // Si on coche "Erreur", on exige au moins une sélection, sinon on lève pas de contrainte
+      const errOn    = document.getElementById('toggleError').checked;
+      const errCount = getSelectedErrorKeys().length;
+      const errOk    = !errOn || errCount > 0;
+
+      // Même principe pour la caisse
+      const cOn      = document.getElementById('toggleCaisse').checked;
+      const hasCaisse= !!document.getElementById('caisseSelect').value;
+      const cOk      = !cOn || hasCaisse;
+
+      // On peut exporter si toutes les conditions sont réunies
+      document.getElementById('exportBtn').disabled = !(hasFrom && rangeOk && errOk && cOk);
+    }
+
+    // final export
+    function exportAnomalies() {
+      const from    = document.getElementById('dateFrom').value;
+      const to      = document.getElementById('toggleRange').checked
+        ? document.getElementById('dateTo').value : '';
+      const errKeys = document.getElementById('toggleError').checked
+        ? getSelectedError() : [];
+      const caisse  = document.getElementById('toggleCaisse').checked
+        ? document.getElementById('caisseSelect').value : '';
+
+      console.log(`${from} ; ${to} ; ${errKeys} ; ${caisse}`);
+
+      // quick validations
+      if (!from) return alert("📅 Choisissez la date de début.");
+      if (document.getElementById('toggleRange').checked && !to)
+        return alert("📅 Choisissez la date de fin.");
+      if (document.getElementById('toggleError').checked && errKeys.length===0)
+        return alert("🚨 Sélectionnez au moins une erreur.");
+      if (document.getElementById('toggleCaisse').checked && !caisse)
+        return alert("🚨 Choisissez une caisse.");
+
+      showLoader("Génération de l'Export...");
+      google.script.run
+        .withSuccessHandler(url => {
+          google.script.host.close();
+          window.open(url,'_blank');
+        })
+        .withFailureHandler(err => {
+          hideLoader();
+          alert("Erreur export anomalies : " + err.message);
+        })
+        .exportAnomaliesPDFBetweenDates({ from, to, errKeys, caisse });
+    }
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

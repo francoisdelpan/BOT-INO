@@ -3,11 +3,17 @@
  * la liste des opérateurs et la liste des états par payKey.
  */
 function loadAddEndShiftData() {
-  const { steps } = loadCheckpointSteps();   // cp + étapes :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'loadAddEndShiftData:v1';
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    return JSON.parse(cached);
+  }
+
+  const { steps } = loadCheckpointSteps();
   const { operators } = loadCheckpointOperators();
-  const { states } = loadIncidentFormLists(); // états (flat) :contentReference[oaicite:2]{index=2}:contentReference[oaicite:3]{index=3}
+  const { states } = loadIncidentFormLists();
   const { supervisors } = loadSupervisors();
-  Logger.log(states);
 
   // grouper par payKey
   const statesByPayKey = states.reduce((acc, s) => {
@@ -16,28 +22,15 @@ function loadAddEndShiftData() {
     return acc;
   }, {});
 
-  Logger.log(statesByPayKey);
-  return { steps, operators, statesByPayKey, supervisors };
+  const payload = { steps, operators, statesByPayKey, supervisors };
+  cache.put(cacheKey, JSON.stringify(payload), 300);
+  return payload;
 }
 
 function loadCheckpointSteps() {
-  const ss         = SpreadsheetApp.getActiveSpreadsheet();
-  const sheetCp    = ss.getSheetByName(SHEET_NAME_CHECKPOINT);
-  const sheetList  = ss.getSheetByName(SHEET_NAME_LIST);
-
-  // 1) Construire un mapping errorKey → payKey depuis LISTES (D3:H)
-  const lastListRow = sheetList.getLastRow();
-  const listData    = sheetList.getRange(RANGE_ERROR_TYPES).getValues().filter(r => r[0] && r[4]);
-  const errorToPay = {};
-  listData.forEach(r => {
-    const payKey   = String(r[0]).trim();
-    const errorKey = String(r[4]).trim();
-    errorToPay[errorKey] = payKey;
-  });
-
-  // 2) Lire les étapes et les checkpoints
-  const stepRaw = sheetCp.getRange(RANGE_STEPS).getValues().filter(r => r[0] && r[1]);
-  const cpRaw   = sheetCp.getRange(RANGE_CHECKPOINTS).getValues().filter(r => r[0] && r[1]);
+  const errorToPay = getCheckpointErrorToPayMap();
+  const stepRaw = getCheckpointStepRows();
+  const cpRaw = getCheckpointRows();
 
   // 3) Regrouper les checkpoints
   const cpByStep = {};
@@ -74,12 +67,7 @@ function loadCheckpointSteps() {
 }
 
 function loadCheckpointOperators() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_OPERATOR);
-  const lastRow = sheet.getLastRow();
-
-  const data = sheet.getRange(RANGE_OPERATORS + lastRow).getValues().filter(r => r[0]);
-
-  const operators = data.map(r => ({
+  const operators = getOperatorRows().map(r => ({
     caisse: r[0],
     nom: r[1] || "",
     prenom: r[2] || "",
@@ -90,19 +78,7 @@ function loadCheckpointOperators() {
 }
 
 function loadSupervisors() {
-  const ss    = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_NAME_SUPERVISOR);
-  if (!sheet) return { supervisors: [] };
-
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return { supervisors: [] };
-
-  // On lit de la ligne 2 à lastRow, colonnes A→C
-  const data = sheet
-    .getRange(2, 1, lastRow - 1, 3)
-    .getValues();
-
-  const supervisors = data
+  const supervisors = getSupervisorRows()
     .filter(r => r[1] && r[2])  // col B = NOM, col C = Prénom doivent exister
     .map(r => ({
       // on retourne "Prénom NOM"
@@ -148,29 +124,35 @@ function loadSupervisors() {
  * Log chaque fin de poste (avec ou sans incident)
  */
 function logEndShift({ date, supervisor, caisse, nbTypeError, totalError }) {
-  console.log(date);
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(SHEET_NAME_LOG);
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_NAME_LOG);
-  }
-  sheet.appendRow([date.replace(/-/g, ''), new Date(), supervisor, caisse, nbTypeError, totalError]);
-}
-
-function submitIncidentData(dataArray) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_INCIDENT);
-
-  dataArray.forEach(incident => {
-    sheet.appendRow([
-      incident.date,
-      incident.payKey,
-      incident.caisse,
-      incident.error,
-      incident.state,
-      incident.amount,
-      incident.quantity,
-      incident.note
-    ]);
+  appendEndShiftLogRow({
+    dateCode: date.replace(/-/g, ''),
+    createdAt: new Date(),
+    supervisor,
+    caisse,
+    nbTypeError,
+    totalError
   });
 }
 
+function submitIncidentData(dataArray) {
+  appendIncidentRows(dataArray);
+}
+
+function submitEndShiftData({ date, supervisor, caisse, incidents }) {
+  const rows = incidents || [];
+
+  appendIncidentRows(rows);
+  appendEndShiftLogRow({
+    dateCode: date.replace(/-/g, ''),
+    createdAt: new Date(),
+    supervisor,
+    caisse,
+    nbTypeError: rows.length,
+    totalError: rows.reduce((sum, row) => sum + (row.quantity || 0), 0)
+  });
+
+  return {
+    incidentCount: rows.length,
+    totalError: rows.reduce((sum, row) => sum + (row.quantity || 0), 0)
+  };
+}

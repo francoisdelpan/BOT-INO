@@ -47,3 +47,7 @@ function showLoader(message = "Chargement...") {
 function hideLoader() {
   SpreadsheetApp.getUi().alert("Chargement terminé !");
 }
+
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
