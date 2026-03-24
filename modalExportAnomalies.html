@@ -44,6 +44,10 @@
     .toggle-card {
       background: var(--brand-soft);
     }
+    .is-disabled {
+      opacity: 0.62;
+      background: #f3f6fb;
+    }
     #loaderOverlay {
       display: none;
       position: fixed; top:0; left:0;
@@ -164,7 +168,7 @@
   <div class="page">
     <span class="section-title">Filtres</span>
 
-    <div class="filter-card toggle-card">
+    <div id="rangeCard" class="filter-card toggle-card">
       <div class="filter-row">
       <div class="form-check">
         <input class="form-check-input" type="checkbox" id="toggleRange" onchange="onToggleRange()">
@@ -175,7 +179,7 @@
       </div>
     </div>
 
-    <div class="filter-card">
+    <div id="errorCard" class="filter-card">
       <div class="filter-row">
       <div class="form-check">
         <input class="form-check-input" type="checkbox" id="toggleError" onchange="onToggleError()">
@@ -199,7 +203,7 @@
     <small id="errorDesc" class="helper-text d-block"></small>
 
 
-    <div class="filter-card">
+    <div id="caisseCard" class="filter-card">
       <div class="filter-row">
       <div class="form-check">
         <input class="form-check-input" type="checkbox" id="toggleCaisse" onchange="onToggleCaisse()">
@@ -231,18 +235,18 @@
       document.getElementById('loaderOverlay').style.display = 'none';
     }
 
-    // map from errorKey → { payKey, label, desc }
     let errorMeta = {};
+    let operatorOptions = [];
 
-    // 1) initial fetch of errors + caisses
     function loadExportAnomaliesModal() {
       showLoader("Chargement des filtres…");
       google.script.run
         .withSuccessHandler(data => {
           populateErrorFilter(data.errorTypes);
           populateCaisseList(data.operators);
+          attachFormListeners();
+          refreshFormState();
           hideLoader();
-          updateExportButton();
         })
         .withFailureHandler(err => {
           hideLoader();
@@ -251,14 +255,16 @@
         .loadIncidentFormLists();
     }
 
-    // called by server: data.errorTypes = [ {payKey,label,key,explication}, … ]
     function populateErrorFilter(errorTypes) {
       const menu = document.getElementById('errorDropdownMenu');
       menu.innerHTML = '';
       errorMeta = {};
 
+      menu.addEventListener('click', event => {
+        event.stopPropagation();
+      });
+
       errorTypes.forEach(e => {
-        // stash everything
         errorMeta[e.key] = {
           payKey: e.payKey,
           errorKey: e.key,
@@ -266,7 +272,6 @@
           desc:   e.explication
         };
 
-        // build a form-check item
         const wrapper = document.createElement('div');
         wrapper.className = 'form-check dropdown-item';
 
@@ -275,14 +280,12 @@
         cb.className = 'form-check-input me-2 error-checkbox';
         cb.id        = `err-${e.key}`;
         cb.value     = e.key;
-        cb.addEventListener('change', updateSelectedErrors);
+        cb.addEventListener('change', refreshFormState);
 
         const lbl = document.createElement('label');
         lbl.htmlFor      = cb.id;
         lbl.className    = 'form-check-label';
         lbl.textContent  = e.key;
-
-        // document.getElementById('errorDesc').textContent = e.label;
 
         wrapper.appendChild(cb);
         wrapper.appendChild(lbl);
@@ -290,15 +293,14 @@
       });
     }
 
-    // populate caisse dropdown
     function populateCaisseList(ops) {
+      operatorOptions = ops || [];
       const sel = document.getElementById('caisseSelect');
       sel.innerHTML = '';
-      // placeholder "Toutes les caisses"
       sel.insertAdjacentHTML('beforeend',
         '<option value="" selected>Toutes les caisses</option>'
       );
-      ops.forEach(o => {
+      operatorOptions.forEach(o => {
         const opt = document.createElement('option');
         opt.value = o.label;
         opt.text  = o.label;
@@ -306,51 +308,76 @@
       });
     }
 
-    // toggle handlers
-    function onToggleRange() {
-      const checked = document.getElementById('toggleRange').checked;
-      // si Intervalle coché, on active dateTo, sinon on la désactive et on vide sa valeur
+    function attachFormListeners() {
+      ['dateFrom', 'dateTo', 'caisseSelect'].forEach(id => {
+        document.getElementById(id).addEventListener('input', refreshFormState);
+        document.getElementById(id).addEventListener('change', refreshFormState);
+      });
+    }
+
+    function readFormState() {
+      return {
+        from: document.getElementById('dateFrom').value,
+        to: document.getElementById('dateTo').value,
+        rangeOn: document.getElementById('toggleRange').checked,
+        errorOn: document.getElementById('toggleError').checked,
+        caisseOn: document.getElementById('toggleCaisse').checked,
+        caisse: document.getElementById('caisseSelect').value,
+        selectedErrorKeys: getSelectedErrorKeys()
+      };
+    }
+
+    function syncRangeUi(state) {
       const dateTo = document.getElementById('dateTo');
-      dateTo.disabled = !checked;
-      if (!checked) dateTo.value = '';
-      updateExportButton();
+      const rangeCard = document.getElementById('rangeCard');
+      dateTo.disabled = !state.rangeOn;
+      rangeCard.classList.toggle('is-disabled', !state.rangeOn);
+      if (!state.rangeOn) {
+        dateTo.value = '';
+      }
     }
 
-    function onToggleError() {
+    function syncErrorUi(state) {
       const btn = document.getElementById('errorDropdownBtn');
-      const enabled = document.getElementById('toggleError').checked;
-      btn.disabled = !enabled;
+      const errorCard = document.getElementById('errorCard');
+      btn.disabled = !state.errorOn;
+      errorCard.classList.toggle('is-disabled', !state.errorOn);
 
-      // placeholder
-      btn.textContent = enabled
-        ? 'Sélectionner les erreurs'
-        : 'Toutes les erreurs';
-
-      // si on désactive, on décoche tout
-      if (!enabled) {
-        document.querySelectorAll('.error-checkbox')
-          .forEach(cb => cb.checked = false);
+      if (!state.errorOn) {
+        document.querySelectorAll('.error-checkbox').forEach(cb => cb.checked = false);
         document.getElementById('errorDesc').textContent = '';
+        btn.textContent = 'Toutes les erreurs';
+        return;
       }
 
-      updateExportButton();
+      const keys = getSelectedErrorKeys();
+      btn.textContent = keys.length === 0
+        ? 'Sélectionner les erreurs'
+        : 'Sélectionné ci-dessous';
+      document.getElementById('errorDesc').textContent =
+        keys.length === 1
+          ? errorMeta[keys[0]].errorKey
+          : keys.map(key => errorMeta[key].errorKey).join(', ');
     }
 
-    function onToggleCaisse() {
+    function syncCaisseUi(state) {
       const sel = document.getElementById('caisseSelect');
-      const enabled = document.getElementById('toggleCaisse').checked;
-      sel.disabled = !enabled;
-
-      // placeholder par défaut
-      if (!enabled) {
-        sel.innerHTML = '<option value="" selected>Toutes les caisses</option>';
-        // puis on re-populera après via populateCaisseList
+      const caisseCard = document.getElementById('caisseCard');
+      sel.disabled = !state.caisseOn;
+      caisseCard.classList.toggle('is-disabled', !state.caisseOn);
+      if (!state.caisseOn) {
+        sel.value = '';
       }
+    }
 
+    function refreshFormState() {
+      const state = readFormState();
+      syncRangeUi(state);
+      syncErrorUi(state);
+      syncCaisseUi(state);
       updateExportButton();
     }
-    
-    // return array of selected errorKeys
+
     function getSelectedErrorKeys() {
       return Array.from(document.querySelectorAll('.error-checkbox'))
         .filter(cb => cb.checked)
@@ -361,80 +388,33 @@
       return getSelectedErrorKeys().map(ek => errorMeta[ek]);
     }
 
-    // whenever the user checks/unchecks an error:
-    function updateSelectedErrors() {
-      const keys = getSelectedErrorKeys();
-      const btn  = document.getElementById('errorDropdownBtn');
-
-      // 1) update button text
-      if (keys.length === 0) {
-        btn.textContent = 'Toutes les erreurs';
-      }
-      else {
-        btn.textContent = 'Sélectionné ci-dessous';
-      }
-
-      // 2) show the explanation of the first selected
-      document.getElementById('errorDesc').textContent = (keys.length === 1) ? errorMeta[keys[0]].errorKey : keys.map(k => errorMeta[k].errorKey).join(', ');
-
-      // 3) re-evaluate whether "Extraire" should be enabled
-      updateExportButton();
-    }
-
-    // enable/disable “Extraire” button
-    /*function updateExportButton() {
-      const from   = !!document.getElementById('dateFrom').value;
-      const rangeOk= !document.getElementById('toggleRange').checked 
-        || !!document.getElementById('dateTo').value;
-      const errOn  = document.getElementById('toggleError').checked;
-      const errOk  = !errOn || getSelectedErrorKeys().length > 0;
-      const cOn    = document.getElementById('toggleCaisse').checked;
-      const cOk    = !cOn || !!document.getElementById('caisseSelect').value;
-      document.getElementById('exportBtn').disabled = !(from && rangeOk && errOk && cOk);
-    }*/
-
     function updateExportButton() {
-      const fromVal  = document.getElementById('dateFrom').value;
-      const hasFrom  = !!fromVal;
-
-      // Si on a coch é l’intervalle, on exige aussi une dateTo
-      const rangeOn  = document.getElementById('toggleRange').checked;
-      const hasTo    = !!document.getElementById('dateTo').value;
-      const rangeOk  = !rangeOn || hasTo;
-
-      // Si on coche "Erreur", on exige au moins une sélection, sinon on lève pas de contrainte
-      const errOn    = document.getElementById('toggleError').checked;
-      const errCount = getSelectedErrorKeys().length;
-      const errOk    = !errOn || errCount > 0;
-
-      // Même principe pour la caisse
-      const cOn      = document.getElementById('toggleCaisse').checked;
-      const hasCaisse= !!document.getElementById('caisseSelect').value;
-      const cOk      = !cOn || hasCaisse;
-
-      // On peut exporter si toutes les conditions sont réunies
+      const state = readFormState();
+      const hasFrom = !!state.from;
+      const rangeOk = !state.rangeOn || !!state.to;
+      const errOk = !state.errorOn || state.selectedErrorKeys.length > 0;
+      const cOk = !state.caisseOn || !!state.caisse;
       document.getElementById('exportBtn').disabled = !(hasFrom && rangeOk && errOk && cOk);
     }
 
-    // final export
+    function onToggleRange() { refreshFormState(); }
+    function onToggleError() { refreshFormState(); }
+    function onToggleCaisse() { refreshFormState(); }
+
     function exportAnomalies() {
-      const from    = document.getElementById('dateFrom').value;
-      const to      = document.getElementById('toggleRange').checked
-        ? document.getElementById('dateTo').value : '';
-      const errKeys = document.getElementById('toggleError').checked
-        ? getSelectedError() : [];
-      const caisse  = document.getElementById('toggleCaisse').checked
-        ? document.getElementById('caisseSelect').value : '';
+      refreshFormState();
+      const state = readFormState();
+      const from = state.from;
+      const to = state.rangeOn ? state.to : '';
+      const errKeys = state.errorOn ? getSelectedError() : [];
+      const caisse = state.caisseOn ? state.caisse : '';
 
-      console.log(`${from} ; ${to} ; ${errKeys} ; ${caisse}`);
-
-      // quick validations
       if (!from) return alert("📅 Choisissez la date de début.");
-      if (document.getElementById('toggleRange').checked && !to)
+      if (state.rangeOn && !to)
         return alert("📅 Choisissez la date de fin.");
-      if (document.getElementById('toggleError').checked && errKeys.length===0)
+      if (state.errorOn && errKeys.length === 0)
         return alert("🚨 Sélectionnez au moins une erreur.");
-      if (document.getElementById('toggleCaisse').checked && !caisse)
+      if (state.caisseOn && !caisse)
         return alert("🚨 Choisissez une caisse.");
 
       showLoader("Génération de l'Export...");
