@@ -51,7 +51,7 @@
     </button>
   </div>
 
-  <!-- Modal BR -->
+  <!-- Modal BR - version dépréciée
   <div class="modal fade" id="brModal" tabindex="-1" aria-labelledby="brModalLabel" aria-hidden="true">
     <div class="modal-dialog">
       <div class="modal-content">
@@ -61,6 +61,20 @@
         </div>
         <div class="modal-body">
           <form id="brForm">
+            <div class="mb-3">
+              <label for="brCount" class="form-label">Nombre de BR comptés</label>
+              <input type="number" step="1" min="0" class="form-control" id="brCount">
+            </div>
+            <div class="mb-3">
+              <label for="brTicketAmount" class="form-label">Montant indiqué sur le ticket</label>
+              <input type="number" step="0.01" min="0" class="form-control" id="brTicketAmount">
+            </div>
+            <div class="mb-3">
+              <label for="brCountedAmount" class="form-label">Montant total compté</label>
+              <input type="number" step="0.01" min="0" class="form-control" id="brCountedAmount">
+            </div>
+
+            <!-- Version dépréciée :
             <div class="mb-3">
               <label for="brTicket" class="form-label">Montant € ticket BR</label>
               <input type="number" step="0.01" class="form-control" id="brTicket">
@@ -73,6 +87,7 @@
               <label for="brScan" class="form-label">Montant € ScanCoupon</label>
               <input type="number" step="0.01" class="form-control" id="brScan">
             </div>
+            -->
           </form>
         </div>
         <div class="modal-footer">
@@ -82,6 +97,7 @@
       </div>
     </div>
   </div>
+  -->
 
   <!-- Modal CHQ -->
   <div class="modal fade" id="chqModal" tabindex="-1" aria-labelledby="chqModalLabel" aria-hidden="true">
@@ -117,13 +133,10 @@
   </div>
 
   <script>
-    let stepData = []
-    isBrSubmitted = false,
-    isBrChecked   = false,
-    currentBrLine = null;
-    isChqSubmitted = false,
-    isChqChecked   = false,
-    currentChqLine = null;
+    let stepData = [];
+    let isChqSubmitted = false;
+    let isChqChecked = false;
+    let currentChqLine = null;
 
     function loadAddEndShiftForm() {
       showLoader("Chargement…");
@@ -179,14 +192,31 @@
           </div>`;
         container.appendChild(card);
       });
+
+      syncSpecialCheckpointState();
+    }
+
+    function hasSpecialCheckpoint(type) {
+      return !!document.querySelector(`.checkpoint-line[data-type="${type}"]`);
+    }
+
+    function syncSpecialCheckpointState() {
+      if (!hasSpecialCheckpoint("SPECHQ")) {
+        isChqSubmitted = true;
+        isChqChecked = true;
+        currentChqLine = null;
+      }
     }
 
     function renderCheckpoints(step) {
       return step.checkpoints.map(cp => {
-        const isTEX   = cp.type === "TEX";
-        const hasAMO  = cp.type.includes("AMO");
-        const hasNUM  = cp.type.includes("NUM");
+        const uiType = cp.type === "SPEBR" ? "TEX" : cp.type;
+        const isTEX   = uiType === "TEX";
+        const hasAMO  = uiType.includes("AMO");
+        const hasNUM  = uiType.includes("NUM");
 
+        /*
+        Version dépréciée :
         if (cp.type === "SPEBR") {
           return `
             <div class="d-flex align-items-center gap-2 mb-2 checkpoint-line" data-type="SPEBR">
@@ -194,6 +224,7 @@
               <button class="btn btn-info btn-sm" onclick="openBrModal(this)">Gérer BR</button>
             </div>`;
         }
+        */
 
         if (cp.type === "SPECHQ") {
           return `
@@ -204,7 +235,8 @@
         }
         return `
           <div class="d-flex align-items-center gap-2 mb-2 checkpoint-line"
-              data-type="${cp.type}"
+              data-type="${uiType}"
+              data-original-type="${cp.type}"
               data-pay-key="${cp.payKey}"
               data-error-key="${cp.errorKey}"
               data-cp-key="${cp.cpKey}">
@@ -276,21 +308,7 @@
         ? "Reprendre l'étape"
         : "Ignorer cette étape";
 
-      // 2️⃣ Si cette étape contient SPEBR, on met à jour les flags BR
-      const brLine = cont.querySelector('[data-type="SPEBR"]');
-      if (brLine) {
-        isBrChecked   = skip;
-        isBrSubmitted = skip;
-        // on (dés)active le bouton « Gérer BR »
-        const brBtn = brLine.querySelector('button.btn-info');
-        if (brBtn) brBtn.disabled = skip;
-        // on passe currentBrLine pour updateSubmitButtonState au besoin
-        currentBrLine = skip ? brLine : null;
-        // on ajoute/retrait la classe visuelle
-        brLine.classList.toggle('br-saved', skip);
-      }
-
-      // 3️⃣ Même chose pour SPECHQ
+      // 2️⃣ Même chose pour SPECHQ
       const chqLine = cont.querySelector('[data-type="SPECHQ"]');
       if (chqLine) {
         isChqChecked   = skip;
@@ -315,12 +333,13 @@
     }
 
     function updateSubmitButtonState() {
+      syncSpecialCheckpointState();
+
       const okDate = !!document.getElementById('incidentDate').value;
       const okCais = !!document.getElementById('caisseInput').value;
       const okSup  = !!document.getElementById('supervisorInput').value;
       const allCP  = Array.from(document.querySelectorAll('.checkpoint-line')).every(line => {
-        // on considère SPEBR et SPECHQ comme valides dès qu'ils sont gérés (checked ou ignorés)
-        if (line.dataset.type==='SPEBR') return isBrChecked;
+        // on considère SPECHQ comme valide dès qu'il est géré (checked ou ignoré)
         if (line.dataset.type==='SPECHQ') return isChqChecked;
         if (line.closest('.skipped-step')) return true;
         const c = line.querySelector('.check-btn').classList.contains('btn-success');
@@ -329,24 +348,16 @@
       });
 
 
-      // Condition BR : soit soumis, soit ignoré
-      const brOK = isBrSubmitted || isBrChecked;
-
-      // Condition BR : soit soumis, soit ignoré
+      // Condition CHQ : soit soumis, soit ignoré
       const chqOK = isChqSubmitted || isChqChecked;
 
-      document.getElementById('submitBtn').disabled = !(okDate && okCais && okSup && allCP && brOK && chqOK);
+      document.getElementById('submitBtn').disabled = !(okDate && okCais && okSup && allCP && chqOK);
 
     }
 
     function submitEndShift() {
-      // On avertit si on n’a pas géré/ignoré la BR
-      if (!isBrChecked || !isBrSubmitted) {
-        return alert("🚨 Veuillez d'abord gérer le BR avant de valider la fin de poste.");
-      }
-
-      // On avertit si on n’a pas géré/ignoré la BR
-      if (!isChqChecked || !isChqSubmitted) {
+      // On avertit si on n’a pas géré/ignoré les chèques
+      if (hasSpecialCheckpoint("SPECHQ") && (!isChqChecked || !isChqSubmitted)) {
         return alert("🚨 Veuillez d'abord gérer les chèques avant de valider la fin de poste.");
       }
 
@@ -356,27 +367,9 @@
       const supervisor = document.getElementById('supervisorInput').value;
       const rows       = [];
 
-      /*
-      document.querySelectorAll('.checkpoint-line').forEach(line=>{
-        if ( line.dataset.type==='SPEBR' || line.closest('.skipped-step') ) return;
-        if ( line.querySelector('.toggle-error-btn').classList.contains('btn-danger') ) {
-          rows.push({
-            date,
-            payKey:   line.dataset.payKey||"",
-            caisse,
-            error:    line.dataset.errorKey||"",
-            state:    "",
-            amount:   parseFloat(line.querySelector('.amount-input').value)||0,
-            quantity: parseInt(line.querySelector('.quantity-input').value)||0,
-            note:     ""
-          });
-        }
-      });*/
-
       document.querySelectorAll('.checkpoint-line').forEach(line => {
-        // on skippe BR, SPECHQ et les étapes ignorées
-        if ( line.dataset.type === 'SPEBR'
-          || line.dataset.type === 'SPECHQ'
+        // on skippe SPECHQ et les étapes ignorées
+        if ( line.dataset.type === 'SPECHQ'
           || line.closest('.skipped-step')
         ) return;
 
@@ -420,16 +413,6 @@
         .submitIncidentData(rows);
     }
 
-    function openBrModal(btn) {
-      if (isBrSubmitted) return alert("🚫 BR déjà soumis.");
-      const date = document.getElementById('incidentDate').value;
-      const caisse = document.getElementById('caisseInput').value;
-      if (!date || !caisse) return alert("📅 Sélectionnez date et caisse d'abord.");
-      currentBrLine = btn.closest('.checkpoint-line');
-      // charger valeurs existantes si besoin...
-      new bootstrap.Modal(document.getElementById('brModal')).show();
-    }
-
     function openChqModal(btn) {
       if (isChqSubmitted) return alert("🚫 Chèque déjà soumis.");
       const date = document.getElementById('incidentDate').value;
@@ -440,19 +423,30 @@
       new bootstrap.Modal(document.getElementById('chqModal')).show();
     }
 
+    /*
+    Version dépréciée :
+    function openBrModal(btn) {
+      if (isBrSubmitted) return alert("🚫 BR déjà soumis.");
+      const date = document.getElementById('incidentDate').value;
+      const caisse = document.getElementById('caisseInput').value;
+      if (!date || !caisse) return alert("📅 Sélectionnez date et caisse d'abord.");
+      currentBrLine = btn.closest('.checkpoint-line');
+      new bootstrap.Modal(document.getElementById('brModal')).show();
+    }
+
     function saveBrDetails() {
       showLoader("Enregistrement BR…");
       const dateCode = document.getElementById('incidentDate').value.replace(/-/g,'');
-      const caisse   = document.getElementById('caisseInput').value;
-      const ticketBR = parseFloat(document.getElementById('brTicket').value) || 0;
-      const sogec    = parseFloat(document.getElementById('brSogec').value)  || 0;
-      const scan     = parseFloat(document.getElementById('brScan').value)   || 0;
+      const caisse = document.getElementById('caisseInput').value;
+      const count = parseInt(document.getElementById('brCount').value, 10) || 0;
+      const ticketBR = parseFloat(document.getElementById('brTicketAmount').value) || 0;
+      const countedTotal = parseFloat(document.getElementById('brCountedAmount').value) || 0;
 
       google.script.run
         .withSuccessHandler(() => {
           hideLoader();
-          isBrSubmitted = true;  // uniquement ici
-          isBrChecked   = true;  // et on marque que c'est fait
+          isBrSubmitted = true;
+          isBrChecked = true;
           currentBrLine.classList.add('br-saved');
           currentBrLine.querySelector('button.btn-info').disabled = true;
           bootstrap.Modal.getInstance(document.getElementById('brModal')).hide();
@@ -462,8 +456,17 @@
           hideLoader();
           alert("Erreur BR : " + err.message);
         })
-        .submitBRData([{ dateCode, caisse, ticketBR, sogec, scan, numeric: (ticketBR - sogec - scan).toFixed(2) }]);
+        .submitBRData([{
+          dateCode,
+          caisse,
+          ticketBR,
+          sogec: countedTotal,
+          scan: 0,
+          numeric: (ticketBR - countedTotal).toFixed(2),
+          count
+        }]);
     }
+    */
 
     function saveChqDetails() {
       showLoader("Enregistrement Chèque…");

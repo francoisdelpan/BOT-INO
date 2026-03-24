@@ -8,7 +8,7 @@ function onOpen() {
     //.addItem("➕ Ajouter une journée de travail", "showAddEndShiftDialog")
     .addItem("🔄 Actualiser tous les keyCodes", "updateAllKeycodes")
     .addSeparator()
-    .addItem("1️⃣ Etat des BR", "showBRExportDialog")
+    .addItem("1️⃣ Etat des BR (désactivé)", "showBRExportDeprecatedDialog")
     .addItem("2️⃣ Etat des Chèques", "showChqExportDialog")
     .addItem("3️⃣ Etat du jour", "showDaysExportDialog")
     .addSeparator()
@@ -43,6 +43,10 @@ function showBRExportDialog() {
     .setWidth(400)
     .setHeight(260);
   SpreadsheetApp.getUi().showModalDialog(html, 'Etat des BR');
+}
+
+function showBRExportDeprecatedDialog() {
+  SpreadsheetApp.getUi().alert("Etat des BR désactivé. L'export est conservé dans le code mais n'est plus utilisé.");
 }
 
 function showChqExportDialog() {

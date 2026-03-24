@@ -6,8 +6,8 @@ function submitBRData(brRows) {
     sheet = ss.insertSheet(name);
     // Entêtes A→G
     sheet.appendRow([
-      "DateCodée", "Caisse", "TicketBR", "SOGEC", 
-      "ScanCoupon", "Numérique", "Nombre"
+      "DateCodée", "Caisse", "MontantTicket", "TotalBR",
+      "Reserve", "Ecart", "Nombre"
     ]);
   }
   // Vérifie que sheet n'est pas null

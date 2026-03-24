@@ -39,7 +39,7 @@ function exportBRPDFBetweenDates(from, to) {
      .setFontWeight('bold')
      .setFontSize(14);
 
-  const headers = ['Date','Caisse','Total Ticket','SOGEC','ScanCoupon','Dématérialisé'];
+  const headers = ['Date','Caisse','Nombre BR','Montant Ticket','Total BR','Ecart'];
   tmp.getRange(2, 1, 1, headers.length)
      .setValues([headers])
      .setFontWeight('bold');
@@ -52,10 +52,10 @@ function exportBRPDFBetweenDates(from, to) {
       // JJ/MM/AAAA
       `${code.slice(6)}/${code.slice(4,6)}/${code.slice(0,4)}`,
       r[1], // caisse
-      Number(r[2]), // ticket BR
-      Number(r[3]), // sogec
-      Number(r[4]), // scanCoupon
-      Number(r[5])  // dématérialisé
+      Number(r[6]) || 0, // nombre de BR
+      Number(r[2]), // montant ticket
+      Number(r[3]), // total BR compte
+      Number(r[5])  // ecart
     ];
   });
   if (data.length) {
@@ -75,10 +75,12 @@ function exportBRPDFBetweenDates(from, to) {
   tmp.setColumnWidth(2, colBWidth);
   tmp.setColumnWidths(3, headers.length - 2, 100);
 
-  // 4.2) Format monétaire Euro sur Ticket BR, SOGEC, ScanCoupon, Dématérialisé
-  // colonnes C (3) à F (6)
+  // 4.2) Format numerique sur le nombre de BR puis monetaire sur Ticket / Total BR / Ecart
   if (data.length) {
-    tmp.getRange(3, 3, data.length, 4)
+    tmp.getRange(3, 3, data.length, 1)
+      .setNumberFormat("0");
+
+    tmp.getRange(3, 4, data.length, 3)
       .setNumberFormat("0.00 €");
   }
 
