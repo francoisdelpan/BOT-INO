@@ -1,4 +1,10 @@
 function loadIncidentFormLists() {
+  const cacheKey = 'loadIncidentFormLists:v1';
+  const cached = getCachedJson(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   const sheetList = ss.getSheetByName(SHEET_NAME_LIST);
@@ -38,10 +44,10 @@ function loadIncidentFormLists() {
     explication: r[3] || ""
   }));
 
-  return {
+  return putCachedJson(cacheKey, {
     paymentMeans,
     operators,
     errorTypes,
     states
-  };
+  }, 300);
 }

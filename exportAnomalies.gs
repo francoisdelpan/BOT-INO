@@ -6,7 +6,7 @@ function exportAnomaliesPDFBetweenDates(params) {
   const { from, to, errKeys, caisse } = params;
   const ss        = SpreadsheetApp.getActive();
   const sheetSrc     = ss.getSheetByName(SHEET_NAME_INCIDENT);
-  if (!sheetSrc) throw new Error(`La feuille ${SHEET_NAME_INCIDENTS} est introuvable.`);
+  if (!sheetSrc) throw new Error(`La feuille ${SHEET_NAME_INCIDENT} est introuvable.`);
   const data      = sheetSrc.getDataRange().getValues().slice(1); // skip header
   const folder    = DriveApp.getFolderById(TMP_FOLDER_ANOM);
 

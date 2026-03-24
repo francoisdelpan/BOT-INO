@@ -51,3 +51,25 @@ function hideLoader() {
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
+
+function getCachedJson(key) {
+  const cached = CacheService.getScriptCache().get(key);
+  return cached ? JSON.parse(cached) : null;
+}
+
+function putCachedJson(key, value, ttlSeconds) {
+  CacheService.getScriptCache().put(key, JSON.stringify(value), ttlSeconds);
+  return value;
+}
+
+function removeCachedKeys(keys) {
+  if (!keys || !keys.length) return;
+  CacheService.getScriptCache().removeAll(keys);
+}
+
+function invalidateReferenceCaches() {
+  removeCachedKeys([
+    'loadAddEndShiftData:v1',
+    'loadIncidentFormLists:v1'
+  ]);
+}

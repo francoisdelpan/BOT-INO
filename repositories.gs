@@ -30,7 +30,13 @@ function appendObjectsAsRows(sheetName, columns, rows) {
 }
 
 function getValues(range) {
-  return SpreadsheetApp.getActiveSpreadsheet().getRange(range).getValues();
+  const match = String(range).match(/^(.+)!([A-Z0-9:]+)$/i);
+  if (!match) {
+    throw new Error(`Plage invalide : ${range}`);
+  }
+
+  const [, sheetName, a1Notation] = match;
+  return getSheetOrThrow(sheetName).getRange(a1Notation).getValues();
 }
 
 function getFilteredValues(range, predicate) {

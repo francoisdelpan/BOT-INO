@@ -3,11 +3,10 @@
  * la liste des opérateurs et la liste des états par payKey.
  */
 function loadAddEndShiftData() {
-  const cache = CacheService.getScriptCache();
   const cacheKey = 'loadAddEndShiftData:v1';
-  const cached = cache.get(cacheKey);
+  const cached = getCachedJson(cacheKey);
   if (cached) {
-    return JSON.parse(cached);
+    return cached;
   }
 
   const { steps } = loadCheckpointSteps();
@@ -22,9 +21,7 @@ function loadAddEndShiftData() {
     return acc;
   }, {});
 
-  const payload = { steps, operators, statesByPayKey, supervisors };
-  cache.put(cacheKey, JSON.stringify(payload), 300);
-  return payload;
+  return putCachedJson(cacheKey, { steps, operators, statesByPayKey, supervisors }, 300);
 }
 
 function loadCheckpointSteps() {
@@ -140,6 +137,7 @@ function submitIncidentData(dataArray) {
 
 function submitEndShiftData({ date, supervisor, caisse, incidents }) {
   const rows = incidents || [];
+  const totalError = rows.reduce((sum, row) => sum + (row.quantity || 0), 0);
 
   appendIncidentRows(rows);
   appendEndShiftLogRow({
@@ -148,11 +146,11 @@ function submitEndShiftData({ date, supervisor, caisse, incidents }) {
     supervisor,
     caisse,
     nbTypeError: rows.length,
-    totalError: rows.reduce((sum, row) => sum + (row.quantity || 0), 0)
+    totalError
   });
 
   return {
     incidentCount: rows.length,
-    totalError: rows.reduce((sum, row) => sum + (row.quantity || 0), 0)
+    totalError
   };
 }

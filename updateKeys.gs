@@ -1,6 +1,7 @@
 function updateAllKeycodes() {
   updateErrorKeys();
   updateCheckpointKeys();
+  invalidateReferenceCaches();
   SpreadsheetApp.getUi().alert("✅ Tous les keycodes ont été actualisés !");
 }
 
