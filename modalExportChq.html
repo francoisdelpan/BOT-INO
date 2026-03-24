@@ -40,6 +40,16 @@
       margin-bottom: 14px;
     }
     .toggle-card { background: var(--brand-soft); }
+    .date-grid {
+      display: flex;
+      gap: 12px;
+      align-items: stretch;
+      margin-bottom: 14px;
+    }
+    .date-grid .field-card {
+      flex: 1 1 0;
+      margin-bottom: 0;
+    }
     .form-check-label,
     .form-label {
       font-size: 13px;
@@ -57,6 +67,13 @@
     .form-control:focus {
       border-color: var(--brand);
       box-shadow: 0 0 0 4px rgba(47, 90, 234, 0.12);
+    }
+    .field-card.is-disabled {
+      background: #f3f6fb;
+      opacity: 0.62;
+    }
+    .field-card.is-disabled .form-label {
+      color: var(--muted);
     }
     .submit-btn {
       width: 100%;
@@ -96,6 +113,11 @@
       font-size: 13px;
       font-weight: 700;
     }
+    @media (max-width: 560px) {
+      .date-grid {
+        flex-direction: column;
+      }
+    }
   </style>
 </head>
 <body>
@@ -110,18 +132,14 @@
         </label>
       </div>
     </div>
-    <div class="row g-3 mb-3">
-      <div class="col-12 col-md-6">
-        <div class="field-card">
+    <div class="date-grid">
+      <div class="field-card">
         <label for="dateFrom" class="form-label">Date</label>
         <input type="date" id="dateFrom" class="form-control">
-        </div>
       </div>
-      <div class="col-12 col-md-6 d-none" id="colTo">
-        <div class="field-card">
+      <div class="field-card is-disabled" id="colTo">
         <label for="dateTo" class="form-label">à</label>
-        <input type="date" id="dateTo" class="form-control">
-        </div>
+        <input type="date" id="dateTo" class="form-control" disabled>
       </div>
     </div>
     <button class="submit-btn" onclick="exportChq()">Extraire les Chèques</button>
@@ -137,8 +155,11 @@
 
   <script>
     function toggleRange(cb) {
-      document.getElementById('colTo')
-        .classList.toggle('d-none', !cb.checked);
+      const colTo = document.getElementById('colTo');
+      const dateTo = document.getElementById('dateTo');
+      colTo.classList.toggle('is-disabled', !cb.checked);
+      dateTo.disabled = !cb.checked;
+      if (!cb.checked) dateTo.value = '';
     }
     function exportChq() {
       const from = document.getElementById('dateFrom').value;

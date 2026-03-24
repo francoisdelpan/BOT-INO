@@ -40,8 +40,8 @@ function showPaymentPersonDialog() {
 function showBRExportDialog() {
   const html = HtmlService
     .createHtmlOutputFromFile('modalExportBr')
-    .setWidth(400)
-    .setHeight(260);
+    .setWidth(680)
+    .setHeight(360);
   SpreadsheetApp.getUi().showModalDialog(html, 'Etat des BR');
 }
 
@@ -52,16 +52,16 @@ function showBRExportDeprecatedDialog() {
 function showChqExportDialog() {
   const html = HtmlService
     .createHtmlOutputFromFile('modalExportChq')
-    .setWidth(400)
-    .setHeight(260);
+    .setWidth(680)
+    .setHeight(360);
   SpreadsheetApp.getUi().showModalDialog(html, 'Etat des Chèques');
 }
 
 function showDaysExportDialog() {
   const html = HtmlService
     .createHtmlOutputFromFile('modalExportDays')
-    .setWidth(400)
-    .setHeight(260);
+    .setWidth(680)
+    .setHeight(360);
   SpreadsheetApp.getUi().showModalDialog(html, 'Etat du jour');
 }
 
