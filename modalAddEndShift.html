@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Fin de poste - Contrôle caisse centrale</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    .input-row { display: flex; gap: 10px; margin-bottom: 20px; }
+    .input-row > div { flex: 1; }
+    .step-card { border: 2px solid; border-radius: 10px; padding: 15px; margin-bottom: 20px; background-color: #f9f9f9; }
+    .step-title { font-weight: bold; font-size: 1.2em; display: flex; justify-content: space-between; align-items: center; }
+    .skip-btn { font-size: 0.8em; }
+    #loaderOverlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(255,255,255,0.85); z-index: 9999; justify-content: center; align-items: center; flex-direction: column; }
+    .skipped-step { opacity: 0.5; pointer-events: none; }
+    .checkpoint-line .amount-input, .checkpoint-line .quantity-input { width: 80px; margin-left: 8px; }
+    .btn-disabled-fake { opacity: 0.5; cursor: not-allowed; border: none !important; background: transparent !important; }
+    .checkpoint-line.br-saved { background-color: #e8f7e4 !important; }
+    .checkpoint-line.chq-saved { background-color: #e8f7e4 !important; }
+  </style>
+</head>
+<body onload="loadAddEndShiftForm()">
+
+  <div class="input-row align-items-end">
+    <div>
+      <label class="form-label">Date :</label>
+      <input type="date" id="incidentDate" class="form-control">
+    </div>
+    <div>
+      <label class="form-label">N° de caisse :</label>
+      <select id="caisseInput" class="form-select">
+        <option value="">Sélectionnez une caisse…</option>
+        <!-- on injecte ici les options via JS -->
+      </select>
+    </div>
+    <div>
+      <label class="form-label">Superviseur :</label>
+      <input type="text" id="supervisorInput" class="form-control" list="supervisorList" placeholder="Prénom NOM">
+      <datalist id="supervisorList"></datalist>
+    </div>
+  </div>
+
+  <hr>
+
+  <div id="stepContainer"></div>
+
+  <div class="text-end mt-3">
+    <button id="submitBtn" class="btn btn-success" onclick="submitEndShift()" disabled>
+      ✅ Valider la fin de poste
+    </button>
+  </div>
+
+  <!-- Modal BR -->
+  <div class="modal fade" id="brModal" tabindex="-1" aria-labelledby="brModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="brModalLabel">Détails Bons de Réduction</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+        </div>
+        <div class="modal-body">
+          <form id="brForm">
+            <div class="mb-3">
+              <label for="brTicket" class="form-label">Montant € ticket BR</label>
+              <input type="number" step="0.01" class="form-control" id="brTicket">
+            </div>
+            <div class="mb-3">
+              <label for="brSogec" class="form-label">Montant € SOGEC</label>
+              <input type="number" step="0.01" class="form-control" id="brSogec">
+            </div>
+            <div class="mb-3">
+              <label for="brScan" class="form-label">Montant € ScanCoupon</label>
+              <input type="number" step="0.01" class="form-control" id="brScan">
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+          <button type="button" class="btn btn-primary" onclick="saveBrDetails()">Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal CHQ -->
+  <div class="modal fade" id="chqModal" tabindex="-1" aria-labelledby="chqModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="chqModalLabel">Détails Chèques</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+        </div>
+        <div class="modal-body">
+          <form id="chqForm">
+            <div class="mb-3">
+              <label for="chqTicket" class="form-label">Nombre sur le ticket</label>
+              <input type="number" step="0.01" class="form-control" id="chqTicket">
+            </div>
+            <div class="mb-3">
+              <label for="chqCounted" class="form-label">Nombre compté</label>
+              <input type="number" step="0.01" class="form-control" id="chqCounted">
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+          <button type="button" class="btn btn-primary" onclick="saveChqDetails()">Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="loaderOverlay">
+    <div class="spinner-border text-primary" role="status" style="width:3rem; height:3rem;"></div>
+    <div id="loaderMessage" class="mt-3 text-primary fw-bold">Chargement...</div>
+  </div>
+
+  <script>
+    let stepData = []
+    isBrSubmitted = false,
+    isBrChecked   = false,
+    currentBrLine = null;
+    isChqSubmitted = false,
+    isChqChecked   = false,
+    currentChqLine = null;
+
+    function loadAddEndShiftForm() {
+      showLoader("Chargement…");
+      google.script.run.withSuccessHandler(data => {
+        stepData = data.steps;
+        populateCaisseList(data.operators);
+        populateSupervisorList(data.supervisors);
+        renderSteps(stepData);
+        hideLoader();
+        initInputs();
+        updateSubmitButtonState();
+      }).loadAddEndShiftData();
+    }
+
+    function populateCaisseList(ops) {
+      const sel = document.getElementById("caisseInput");
+      sel.innerHTML = '<option value="">Sélectionnez une caisse…</option>';
+      ops.forEach(o => {
+        const opt = document.createElement("option");
+        opt.value = o.label;
+        opt.text  = o.label;
+        sel.appendChild(opt);
+      });
+    }
+
+    function populateSupervisorList(sups) {
+      const dl = document.getElementById("supervisorList");
+      dl.innerHTML = "";
+      sups.forEach(s => {
+        const opt = document.createElement("option");
+        opt.value = s.label;
+        dl.appendChild(opt);
+      });
+    }
+
+    function renderSteps(steps) {
+      const container = document.getElementById("stepContainer");
+      container.innerHTML = "";
+      steps.forEach((step, i) => {
+        const card = document.createElement("div");
+        card.className = "step-card";
+        card.style.borderColor = getPastelColor(i);
+        card.innerHTML = `
+          <div class="step-title">
+            ${step.label}
+            <button class="btn btn-outline-secondary btn-sm skip-btn"
+                    onclick="toggleStepSkip('${step.num}', this)">
+              Ignorer cette étape
+            </button>
+          </div>
+          <div id="cp-container-${step.num}">
+            ${renderCheckpoints(step)}
+          </div>`;
+        container.appendChild(card);
+      });
+    }
+
+    function renderCheckpoints(step) {
+      return step.checkpoints.map(cp => {
+        const isTEX   = cp.type === "TEX";
+        const hasAMO  = cp.type.includes("AMO");
+        const hasNUM  = cp.type.includes("NUM");
+
+        if (cp.type === "SPEBR") {
+          return `
+            <div class="d-flex align-items-center gap-2 mb-2 checkpoint-line" data-type="SPEBR">
+              <span class="flex-grow-1 small">${cp.instruction}</span>
+              <button class="btn btn-info btn-sm" onclick="openBrModal(this)">Gérer BR</button>
+            </div>`;
+        }
+
+        if (cp.type === "SPECHQ") {
+          return `
+            <div class="d-flex align-items-center gap-2 mb-2 checkpoint-line" data-type="SPECHQ">
+              <span class="flex-grow-1 small">${cp.instruction}</span>
+              <button class="btn btn-info btn-sm" onclick="openChqModal(this)">Gérer Chèque</button>
+            </div>`;
+        }
+        return `
+          <div class="d-flex align-items-center gap-2 mb-2 checkpoint-line"
+              data-type="${cp.type}"
+              data-pay-key="${cp.payKey}"
+              data-error-key="${cp.errorKey}"
+              data-cp-key="${cp.cpKey}">
+            <span class="flex-grow-1 small">${cp.instruction}</span>
+
+            <!-- bouton ✓ toujours actif -->
+            <button class="btn btn-outline-success btn-sm check-btn"
+                    onclick="toggleCheck(this)">
+              ✓
+            </button>
+
+            <!-- bouton ✖️ désactivé si TEX -->
+            <button class="btn btn-outline-secondary btn-sm toggle-error-btn ${isTEX ? 'btn-disabled-fake" disabled' : ''}"
+                    onclick="${isTEX ? '' : 'toggleError(this)'}">
+              ✖️
+            </button>
+
+            <!-- amount input : placeholder seulement si AMO -->
+            <input type="number"
+                  class="form-control form-control-sm amount-input"
+                  ${hasAMO ? 'placeholder="€"' : ''}
+                  disabled>
+
+            <!-- quantity input : placeholder seulement si NUM -->
+            <input type="number"
+                  class="form-control form-control-sm quantity-input"
+                  ${hasNUM ? 'placeholder="Qté"' : ''}
+                  disabled>
+          </div>`;
+      }).join("");
+    }
+
+    function toggleCheck(btn) {
+      const line = btn.closest('.checkpoint-line');
+      const err = line.querySelector('.toggle-error-btn');
+      const on = !btn.classList.contains('btn-success');
+      btn.classList.toggle('btn-success', on);
+      btn.classList.toggle('btn-outline-success', !on);
+      if (on) {
+        err.classList.replace('btn-danger','btn-outline-secondary');
+        line.querySelectorAll('input[type=number]').forEach(i=>i.disabled=true);
+      }
+      updateSubmitButtonState();
+    }
+
+    function toggleError(btn) {
+      const line = btn.closest('.checkpoint-line');
+      const chk = line.querySelector('.check-btn');
+      const on = !btn.classList.contains('btn-danger');
+      btn.classList.toggle('btn-danger', on);
+      btn.classList.toggle('btn-outline-secondary', !on);
+      if (on) {
+        chk.classList.replace('btn-success','btn-outline-success');
+        const t = line.dataset.type;
+        line.querySelector('.amount-input').disabled  = !t.includes('AMO');
+        line.querySelector('.quantity-input').disabled= !t.includes('NUM');
+      } else {
+        line.querySelectorAll('input[type=number]').forEach(i=>i.disabled=true);
+      }
+      updateSubmitButtonState();
+    }
+
+    function toggleStepSkip(stepNum, btn) {
+      const cont = document.getElementById(`cp-container-${stepNum}`);
+      const skip = cont.classList.toggle('skipped-step');
+
+      // 1️⃣ Change le texte du bouton
+      btn.textContent = skip
+        ? "Reprendre l'étape"
+        : "Ignorer cette étape";
+
+      // 2️⃣ Si cette étape contient SPEBR, on met à jour les flags BR
+      const brLine = cont.querySelector('[data-type="SPEBR"]');
+      if (brLine) {
+        isBrChecked   = skip;
+        isBrSubmitted = skip;
+        // on (dés)active le bouton « Gérer BR »
+        const brBtn = brLine.querySelector('button.btn-info');
+        if (brBtn) brBtn.disabled = skip;
+        // on passe currentBrLine pour updateSubmitButtonState au besoin
+        currentBrLine = skip ? brLine : null;
+        // on ajoute/retrait la classe visuelle
+        brLine.classList.toggle('br-saved', skip);
+      }
+
+      // 3️⃣ Même chose pour SPECHQ
+      const chqLine = cont.querySelector('[data-type="SPECHQ"]');
+      if (chqLine) {
+        isChqChecked   = skip;
+        isChqSubmitted = skip;
+        const chqBtn = chqLine.querySelector('button.btn-info');
+        if (chqBtn) chqBtn.disabled = skip;
+        currentChqLine = skip ? chqLine : null;
+        chqLine.classList.toggle('chq-saved', skip);
+      }
+
+      // 4️⃣ On désactive tous les autres boutons de cette étape
+      cont.querySelectorAll('button').forEach(b => b.disabled = skip);
+
+      updateSubmitButtonState();
+    }
+
+
+    function initInputs() {
+      ['incidentDate','caisseInput','supervisorInput'].forEach(id=>
+        document.getElementById(id).addEventListener('input', updateSubmitButtonState)
+      );
+    }
+
+    function updateSubmitButtonState() {
+      const okDate = !!document.getElementById('incidentDate').value;
+      const okCais = !!document.getElementById('caisseInput').value;
+      const okSup  = !!document.getElementById('supervisorInput').value;
+      const allCP  = Array.from(document.querySelectorAll('.checkpoint-line')).every(line => {
+        // on considère SPEBR et SPECHQ comme valides dès qu'ils sont gérés (checked ou ignorés)
+        if (line.dataset.type==='SPEBR') return isBrChecked;
+        if (line.dataset.type==='SPECHQ') return isChqChecked;
+        if (line.closest('.skipped-step')) return true;
+        const c = line.querySelector('.check-btn').classList.contains('btn-success');
+        const e = line.querySelector('.toggle-error-btn').classList.contains('btn-danger');
+        return c||e;
+      });
+
+
+      // Condition BR : soit soumis, soit ignoré
+      const brOK = isBrSubmitted || isBrChecked;
+
+      // Condition BR : soit soumis, soit ignoré
+      const chqOK = isChqSubmitted || isChqChecked;
+
+      document.getElementById('submitBtn').disabled = !(okDate && okCais && okSup && allCP && brOK && chqOK);
+
+    }
+
+    function submitEndShift() {
+      // On avertit si on n’a pas géré/ignoré la BR
+      if (!isBrChecked || !isBrSubmitted) {
+        return alert("🚨 Veuillez d'abord gérer le BR avant de valider la fin de poste.");
+      }
+
+      // On avertit si on n’a pas géré/ignoré la BR
+      if (!isChqChecked || !isChqSubmitted) {
+        return alert("🚨 Veuillez d'abord gérer les chèques avant de valider la fin de poste.");
+      }
+
+      showLoader("Enregistrement…");
+      const date       = document.getElementById('incidentDate').value;
+      const caisse     = document.getElementById('caisseInput').value;
+      const supervisor = document.getElementById('supervisorInput').value;
+      const rows       = [];
+
+      /*
+      document.querySelectorAll('.checkpoint-line').forEach(line=>{
+        if ( line.dataset.type==='SPEBR' || line.closest('.skipped-step') ) return;
+        if ( line.querySelector('.toggle-error-btn').classList.contains('btn-danger') ) {
+          rows.push({
+            date,
+            payKey:   line.dataset.payKey||"",
+            caisse,
+            error:    line.dataset.errorKey||"",
+            state:    "",
+            amount:   parseFloat(line.querySelector('.amount-input').value)||0,
+            quantity: parseInt(line.querySelector('.quantity-input').value)||0,
+            note:     ""
+          });
+        }
+      });*/
+
+      document.querySelectorAll('.checkpoint-line').forEach(line => {
+        // on skippe BR, SPECHQ et les étapes ignorées
+        if ( line.dataset.type === 'SPEBR'
+          || line.dataset.type === 'SPECHQ'
+          || line.closest('.skipped-step')
+        ) return;
+
+        const toggleErrBtn = line.querySelector('.toggle-error-btn');
+        // si on a un bouton d’erreur et qu’il est actif (btn-danger)…
+        if (toggleErrBtn && toggleErrBtn.classList.contains('btn-danger')) {
+          rows.push({
+            date,
+            payKey:   line.dataset.payKey   || "",
+            caisse,
+            error:    line.dataset.errorKey || "",
+            state:    "",
+            amount:   parseFloat(line.querySelector('.amount-input').value) || 0,
+            quantity: parseInt  (line.querySelector('.quantity-input').value) || 0,
+            note:     ""
+          });
+        }
+      });
+
+      // On envoie d’abord dans BASE DES INCIDENTS, puis on log
+      google.script.run
+        .withFailureHandler(e => {
+          hideLoader();
+          alert("Erreur incidents : "+e.message);
+        })
+        .withSuccessHandler(() => {
+          hideLoader();
+          google.script.run
+            .withFailureHandler(e => {
+              hideLoader();
+              alert("Erreur log : "+e.message);
+            })
+            .withSuccessHandler(() => {
+              hideLoader();
+              alert("✅ Fin de poste enregistrée !");
+              google.script.host.close();
+            })
+            // On passe supervisor et le nombre d’anomalies
+            .logEndShift({ date, supervisor, caisse, nbTypeError: rows.length, totalError: rows.reduce((sum, row) => sum + row.quantity, 0)  });
+        })
+        .submitIncidentData(rows);
+    }
+
+    function openBrModal(btn) {
+      if (isBrSubmitted) return alert("🚫 BR déjà soumis.");
+      const date = document.getElementById('incidentDate').value;
+      const caisse = document.getElementById('caisseInput').value;
+      if (!date || !caisse) return alert("📅 Sélectionnez date et caisse d'abord.");
+      currentBrLine = btn.closest('.checkpoint-line');
+      // charger valeurs existantes si besoin...
+      new bootstrap.Modal(document.getElementById('brModal')).show();
+    }
+
+    function openChqModal(btn) {
+      if (isChqSubmitted) return alert("🚫 Chèque déjà soumis.");
+      const date = document.getElementById('incidentDate').value;
+      const caisse = document.getElementById('caisseInput').value;
+      if (!date || !caisse) return alert("📅 Sélectionnez date et caisse d'abord.");
+      currentChqLine = btn.closest('.checkpoint-line');
+      // charger valeurs existantes si besoin...
+      new bootstrap.Modal(document.getElementById('chqModal')).show();
+    }
+
+    function saveBrDetails() {
+      showLoader("Enregistrement BR…");
+      const dateCode = document.getElementById('incidentDate').value.replace(/-/g,'');
+      const caisse   = document.getElementById('caisseInput').value;
+      const ticketBR = parseFloat(document.getElementById('brTicket').value) || 0;
+      const sogec    = parseFloat(document.getElementById('brSogec').value)  || 0;
+      const scan     = parseFloat(document.getElementById('brScan').value)   || 0;
+
+      google.script.run
+        .withSuccessHandler(() => {
+          hideLoader();
+          isBrSubmitted = true;  // uniquement ici
+          isBrChecked   = true;  // et on marque que c'est fait
+          currentBrLine.classList.add('br-saved');
+          currentBrLine.querySelector('button.btn-info').disabled = true;
+          bootstrap.Modal.getInstance(document.getElementById('brModal')).hide();
+          updateSubmitButtonState();
+        })
+        .withFailureHandler(err => {
+          hideLoader();
+          alert("Erreur BR : " + err.message);
+        })
+        .submitBRData([{ dateCode, caisse, ticketBR, sogec, scan, numeric: (ticketBR - sogec - scan).toFixed(2) }]);
+    }
+
+    function saveChqDetails() {
+      showLoader("Enregistrement Chèque…");
+      const dateCode = document.getElementById('incidentDate').value.replace(/-/g,'');
+      const caisse   = document.getElementById('caisseInput').value;
+      const ticketChq = parseFloat(document.getElementById('chqTicket').value) || 0;
+      const countedChq    = parseFloat(document.getElementById('chqCounted').value)  || 0;
+
+      google.script.run
+        .withSuccessHandler(() => {
+          hideLoader();
+          isChqSubmitted = true;  // uniquement ici
+          isChqChecked   = true;  // et on marque que c'est fait
+          currentChqLine.classList.add('chq-saved');
+          currentChqLine.querySelector('button.btn-info').disabled = true;
+          bootstrap.Modal.getInstance(document.getElementById('chqModal')).hide();
+          updateSubmitButtonState();
+        })
+        .withFailureHandler(err => {
+          hideLoader();
+          alert("Erreur Chèque : " + err.message);
+        })
+        .submitChqData([{ dateCode, caisse, ticketChq, countedChq, missing: (ticketChq - countedChq) }]);
+    }
+
+    function showLoader(msg='') {
+      document.getElementById('loaderMessage').textContent = msg;
+      document.getElementById('loaderOverlay').style.display = 'flex';
+    }
+    function hideLoader() {
+      document.getElementById('loaderOverlay').style.display = 'none';
+    }
+    function getPastelColor(i){
+      const cols = ["#D2E3FC","#E6F4EA","#FCE8E6","#FFF4DE","#ECE2F0"];
+      return cols[i % cols.length];
+    }
+  </script>
+</body>
+</html>

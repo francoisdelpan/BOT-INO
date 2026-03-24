@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Dépouillement par personne</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    .input-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .input-row > div {
+      flex: 1;
+    }
+    .action-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 15px;
+    }
+    .incident-card {
+      margin-top: 15px;
+    }
+    #loaderOverlay {
+      display: none;
+    }
+  </style>
+</head>
+
+<body onload="loadPersonForm()">
+  <div class="input-row align-items-end">
+    <div>
+      <label for="operatorInput" class="form-label">Numéro de caisse :</label>
+      <input class="form-control" list="operatorList" id="operatorInput" placeholder="Tapez un numéro ou un nom...">
+      <datalist id="operatorList"></datalist>
+    </div>
+    <div style="width: 50px;">
+      <label class="form-label" style="visibility: hidden;">.</label>
+      <button class="btn btn-sm btn-outline-success px-2" title="Valider" onclick="confirmOperatorSelection()">✔</button>
+    </div>
+    <div>
+      <label for="incidentDate" class="form-label">Date :</label>
+      <input type="date" id="incidentDate" class="form-control">
+    </div>
+  </div>
+
+  <div class="action-row">
+    <button class="btn btn-primary" onclick="addPaymentRow()">+ Ajouter un moyen de paiement</button>
+    <button class="btn btn-success" onclick="submitPersonIncidents()">✅ Soumettre</button>
+  </div>
+
+  <hr>
+  <div id="incidentContainer"></div>
+
+  <div id="loaderOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(255,255,255,0.85); z-index:9999; justify-content:center; align-items:center; flex-direction:column;">
+    <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+    <div id="loaderMessage" class="mt-3 text-primary fw-bold">Chargement...</div>
+  </div>
+
+  <script>
+    let operatorList = [];
+    let paymentMeans = [];
+    let errorList = [];
+    let stateList = [];
+    let operatorLocked = false;
+    let incidentIndex = 0;
+    let selectedOperator = null;
+
+    function showLoader(message = "Chargement...") {
+      document.getElementById("loaderMessage").textContent = message;
+      document.getElementById("loaderOverlay").style.display = "flex";
+    }
+
+    function hideLoader() {
+      document.getElementById("loaderOverlay").style.display = "none";
+    }
+
+    function loadPersonForm() {
+      showLoader("Chargement des listes...");
+      google.script.run.withSuccessHandler(data => {
+        operatorList = data.operators;
+        paymentMeans = data.paymentMeans;
+        errorList = data.errorTypes;
+        stateList = data.states;
+
+        const datalist = document.getElementById("operatorList");
+        operatorList.forEach(op => {
+          const label = `${op.caisse} - ${op.lastname ?? ""} ${op.firstname ?? ""}`.trim();
+          const option = document.createElement("option");
+          option.value = label;
+          datalist.appendChild(option);
+        });
+
+        hideLoader();
+      }).loadIncidentFormLists();
+    }
+
+    function confirmOperatorSelection() {
+      const input = document.getElementById("operatorInput").value;
+      const date = document.getElementById("incidentDate").value;
+
+      if (!input) {
+        alert("⚠️ Veuillez renseigner un numéro de caisse.");
+        return;
+      }
+
+      if (!date) {
+        alert("📅 Merci de sélectionner une date.");
+        return;
+      }
+
+      const match = operatorList.find(op => {
+        const fullLabel = `${op.caisse} - ${op.lastname ?? ""} ${op.firstname ?? ""}`.trim();
+        return fullLabel === input;
+      });
+
+      if (!match) {
+        alert("❌ Aucun opérateur trouvé pour cette saisie. Vérifiez le format ou choisissez depuis la liste.");
+        return;
+      }
+
+      if (!confirm("🔒 Une fois validé, le numéro de caisse ne pourra plus être modifié.\nSouhaitez-vous continuer ?")) return;
+
+      document.getElementById("operatorInput").disabled = true;
+      operatorLocked = true;
+      selectedOperator = match.caisse;
+
+      addPaymentRow();
+    }
+
+    function addPaymentRow() {
+      if (!operatorLocked) {
+        alert("Veuillez valider la caisse avant d'ajouter un moyen de paiement.");
+        return;
+      }
+
+      const container = document.getElementById("incidentContainer");
+      const card = document.createElement("div");
+      card.className = "card incident-card";
+      card.id = `incident-${incidentIndex}`;
+      card.innerHTML = `
+        <div class="card-body">
+          <h5 class="card-title">Paiement n°${incidentIndex + 1}</h5>
+
+          <div class="row mb-2">
+            <div class="col">
+              <label class="form-label">Moyen de paiement</label>
+              <select class="form-select" name="payKey"></select>
+            </div>
+            <div class="col">
+              <label class="form-label">Type d'erreur</label>
+              <select class="form-select" name="errorType"></select>
+            </div>
+            <div class="col">
+              <label class="form-label">État</label>
+              <select class="form-select" name="state"></select>
+            </div>
+          </div>
+
+          <div class="row mb-2">
+            <div class="col">
+              <label class="form-label">Montant (€)</label>
+              <input type="number" class="form-control" name="amount" min="0" step="0.01">
+            </div>
+            <div class="col">
+              <label class="form-label">Quantité</label>
+              <input type="text" class="form-control" name="quantity" placeholder="-" value="-">
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label">Commentaire</label>
+            <textarea class="form-control" name="note" rows="2"></textarea>
+          </div>
+
+          <button class="btn btn-danger" onclick="removeIncidentRow(${incidentIndex})">❌ Supprimer ce paiement</button>
+        </div>
+      `;
+      container.prepend(card);
+
+      const cardEl = document.getElementById(`incident-${incidentIndex}`);
+      const paySelect = cardEl.querySelector("select[name='payKey']");
+      const errorSelect = cardEl.querySelector("select[name='errorType']");
+      const stateSelect = cardEl.querySelector("select[name='state']");
+
+      paySelect.appendChild(new Option("-- Sélectionner --", "", true, true));
+      paymentMeans.forEach(pm => {
+        const option = new Option(pm.label, pm.key);
+        paySelect.appendChild(option);
+      });
+
+      paySelect.addEventListener("change", function () {
+        errorSelect.innerHTML = "";
+        stateSelect.innerHTML = "";
+
+        const selectedKey = paySelect.value;
+        const filteredErrors = errorList.filter(e => e.payKey === selectedKey);
+        const filteredStates = stateList.filter(s => s.payKey === selectedKey);
+
+        filteredErrors.forEach(err => {
+          const option = new Option(err.label, err.key);
+          errorSelect.appendChild(option);
+        });
+
+        filteredStates.forEach(st => {
+          const option = new Option(st.label, st.key);
+          option.style.backgroundColor = st.color;
+          stateSelect.appendChild(option);
+        });
+      });
+
+      incidentIndex++;
+    }
+
+    function removeIncidentRow(index) {
+      const card = document.getElementById(`incident-${index}`);
+      if (card) card.remove();
+    }
+
+    function submitPersonIncidents() {
+      const date = document.getElementById("incidentDate").value;
+      if (!date || !operatorLocked || !selectedOperator) {
+        alert("Veuillez valider la caisse et la date.");
+        return;
+      }
+
+      const cards = document.querySelectorAll(".incident-card");
+      if (cards.length === 0) {
+        alert("Ajoutez au moins un paiement avant de soumettre.");
+        return;
+      }
+
+      const data = [];
+
+      for (let card of cards) {
+        const payKey = card.querySelector("select[name='payKey']").value;
+        const errorLabel = card.querySelector("select[name='errorType']").selectedOptions[0]?.textContent;
+        const stateLabel = card.querySelector("select[name='state']").selectedOptions[0]?.textContent;
+        const amount = parseFloat(card.querySelector("input[name='amount']").value) || 0;
+        const quantity = card.querySelector("input[name='quantity']").value || "-";
+        const note = card.querySelector("textarea[name='note']").value || "";
+
+        if (!payKey || !errorLabel || !stateLabel) {
+          alert("Tous les champs obligatoires ne sont pas remplis.");
+          return;
+        }
+
+        data.push({
+          date,
+          payKey,
+          caisse: selectedOperator,
+          error: errorLabel,
+          state: stateLabel,
+          amount,
+          quantity,
+          note
+        });
+      }
+
+      showLoader("Enregistrement en cours...");
+      google.script.run
+        .withSuccessHandler(() => {
+          hideLoader();
+          alert("✅ Incidents enregistrés avec succès !");
+          window.location.reload();
+        })
+        .withFailureHandler(err => {
+          hideLoader();
+          alert("Erreur lors de l'enregistrement : " + err.message);
+          console.error(err);
+        })
+        .submitIncidentData(data);
+    }
+  </script>
+</body>
+</html>

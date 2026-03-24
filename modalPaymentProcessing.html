@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Fin de poste - Contrôle caisse centrale</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    .input-row { display: flex; gap: 10px; margin-bottom: 20px; }
+    .input-row > div { flex: 1; }
+    .step-card { border: 2px solid; border-radius: 10px; padding: 15px; margin-bottom: 20px; background-color: #f9f9f9; }
+    .step-title { font-weight: bold; font-size: 1.2em; display: flex; justify-content: space-between; align-items: center; }
+    .skip-btn { font-size: 0.8em; }
+    #loaderOverlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(255,255,255,0.85); z-index: 9999; justify-content: center; align-items: center; flex-direction: column; }
+    .skipped-step { opacity: 0.5; pointer-events: none; }
+    .checkpoint-line .amount-input, .checkpoint-line .quantity-input { width: 80px; margin-left: 8px; }
+    .btn-disabled-fake { opacity: 0.5; cursor: not-allowed; border: none !important; background: transparent !important; }
+    .checkpoint-line.br-saved { background-color: #e8f7e4 !important; }
+  </style>
+</head>
+<body onload="loadAddEndShiftForm()">
+
+  <div class="input-row align-items-end">
+    <div>
+      <label class="form-label">Date :</label>
+      <input type="date" id="incidentDate" class="form-control">
+    </div>
+    <div>
+      <label class="form-label">N° de caisse :</label>
+      <input class="form-control" list="caisseList" id="caisseInput" placeholder="Ex : 103, 104...">
+      <datalist id="caisseList"></datalist>
+    </div>
+  </div>
+
+  <hr>
+
+  <div id="stepContainer"></div>
+
+  <div class="text-end mt-3">
+    <button id="submitBtn" class="btn btn-success" onclick="submitEndShift()" disabled>
+      ✅ Valider la fin de poste
+    </button>
+  </div>
+
+  <!-- Loader -->
+  <div id="loaderOverlay">
+    <div class="spinner-border text-primary" role="status" style="width:3rem; height:3rem;"></div>
+    <div id="loaderMessage" class="mt-3 text-primary fw-bold">Chargement...</div>
+  </div>
+
+  <script>
+    let stepData = [], operatorList = [];
+    let brSubmitted = false;
+
+    function loadAddEndShiftForm() {
+      showLoader("Chargement des paramètres…");
+      google.script.run.withSuccessHandler(data=>{
+        operatorList = data.operators;
+        stepData     = data.steps;
+        populateCaisseList(operatorList);
+        renderSteps(stepData);
+        hideLoader();
+        initInputs();
+        updateSubmitButtonState();
+      }).loadAddEndShiftData();
+    }
+
+    function populateCaisseList(ops){
+      const dl=document.getElementById("caisseList"); dl.innerHTML="";
+      ops.forEach(o=>{ const opt=document.createElement("option"); opt.value=o.label; dl.appendChild(opt); });
+    }
+
+    function renderSteps(steps){
+      const c=document.getElementById("stepContainer"); c.innerHTML="";
+      steps.forEach((step,i)=>{
+        const div=document.createElement("div");
+        div.className="step-card";
+        div.style.borderColor=getPastelColor(i);
+        div.innerHTML=`
+          <div class="step-title">${step.label}
+            <button class="btn btn-outline-secondary btn-sm skip-btn"
+              onclick="toggleStepSkip('${step.num}', this)">
+              Ignorer cette étape
+            </button>
+          </div>
+          <div id="cp-container-${step.num}">
+            ${renderCheckpoints(step)}
+          </div>`;
+        c.appendChild(div);
+      });
+    }
+
+    function renderCheckpoints(step){
+      return step.checkpoints.map(cp=>{
+        if(cp.type==="SPEBR"){
+          return `<div class="d-flex align-items-center gap-2 mb-2 checkpoint-line" data-type="SPEBR">
+            <span class="flex-grow-1 small">${cp.instruction}</span>
+            <button class="btn btn-info btn-sm" onclick="openBrModal(this)">Gérer BR</button>
+          </div>`;
+        }
+        return `<div class="d-flex align-items-center gap-2 mb-2 checkpoint-line" data-type="${cp.type}">
+          <span class="flex-grow-1 small">${cp.instruction}</span>
+          <button class="btn btn-outline-success btn-sm check-btn" onclick="toggleCheck(this)">✓</button>
+          <button class="btn btn-outline-danger btn-sm toggle-error-btn" onclick="toggleError(this)">✖️</button>
+          <input type="number" class="form-control form-control-sm amount-input" placeholder="€" disabled>
+          <input type="number" class="form-control form-control-sm quantity-input" placeholder="Qté" disabled>
+        </div>`;
+      }).join("");
+    }
+
+    function toggleCheck(btn){
+      const line = btn.closest('.checkpoint-line');
+      if(brSubmitted||line.dataset.type==='SPEBR') return;
+      // on désactive toute erreur active
+      const err = line.querySelector('.toggle-error-btn');
+      err.classList.add('btn-outline-danger');
+      err.classList.remove('btn-danger');
+      err.disabled = false;
+      // on bascule le check
+      if (btn.classList.contains('btn-success')) {
+        btn.classList.remove('btn-success');
+        btn.classList.add('btn-outline-success');
+      } else {
+        btn.classList.add('btn-success');
+        btn.classList.remove('btn-outline-success');
+        // et on désactive erreur
+        err.disabled = true;
+      }
+      // inputs toujours gris
+      line.querySelectorAll('input[type=number]').forEach(i=>i.disabled=true);
+      updateSubmitButtonState();
+    }
+
+    function toggleError(btn){
+      const line = btn.closest('.checkpoint-line');
+      if(brSubmitted) return;
+      // on désactive tout check actif
+      const chk = line.querySelector('.check-btn');
+      chk.classList.add('btn-outline-success');
+      chk.classList.remove('btn-success');
+      chk.disabled = false;
+      // on bascule la croix
+      if (btn.classList.contains('btn-danger')) {
+        btn.classList.remove('btn-danger');
+        btn.classList.add('btn-outline-danger');
+      } else {
+        btn.classList.add('btn-danger');
+        btn.classList.remove('btn-outline-danger');
+        // désactive le check
+        chk.disabled = true;
+      }
+      // inputs grisés/sélectifs
+      const t = line.dataset.type;
+      line.querySelector('.amount-input').disabled = !(btn.classList.contains('btn-danger') && t.includes('AMO'));
+      line.querySelector('.quantity-input').disabled = !(btn.classList.contains('btn-danger') && t.includes('NUM'));
+      updateSubmitButtonState();
+    }
+
+    function toggleStepSkip(stepNum,btn){
+      const cont=document.getElementById(`cp-container-${stepNum}`);
+      const skip=cont.classList.toggle('skipped-step');
+      [...cont.querySelectorAll('button')].forEach(b=>b.disabled=skip);
+      updateSubmitButtonState();
+    }
+
+    function initInputs(){
+      document.getElementById('incidentDate').addEventListener('input',updateSubmitButtonState);
+      document.getElementById('caisseInput').addEventListener('input',updateSubmitButtonState);
+    }
+
+    function updateSubmitButtonState(){
+      const okDate=!!document.getElementById('incidentDate').value;
+      const okCais=!!document.getElementById('caisseInput').value;
+      const all=Array.from(document.querySelectorAll('.checkpoint-line')).every(line=>{
+        if(line.dataset.type==='SPEBR'|| line.closest('.skipped-step'))return true;
+        const c=line.querySelector('.check-btn').classList.contains('btn-success');
+        const e=line.querySelector('.toggle-error-btn').classList.contains('btn-danger');
+        return c||e;
+      });
+      document.getElementById('submitBtn').disabled=!(okDate&&okCais&&all);
+    }
+
+    function submitEndShift(){
+      showLoader("Enregistrement…");
+      // simulation
+      setTimeout(()=>{
+        hideLoader();
+        alert("Export simulé terminé.");
+      },500);
+    }
+
+    function openBrModal(btn){/* ... */} 
+    function saveBrDetails(){/* ... */}
+
+    function showLoader(msg='…'){document.getElementById('loaderMessage').textContent=msg;document.getElementById('loaderOverlay').style.display='flex';}
+    function hideLoader(){document.getElementById('loaderOverlay').style.display='none';}
+    function getPastelColor(i){const cols=["#D2E3FC","#E6F4EA","#FCE8E6","#FFF4DE","#ECE2F0"];return cols[i%cols.length];}
+  </script>
+</body>
+</html>
