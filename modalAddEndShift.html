@@ -323,7 +323,37 @@
     </div>
   </div>
 
-  <!-- Modal BR retirée du flux actif. La logique dépréciée est conservée côté JS pour référence. -->
+  <!-- Modal BR -->
+  <div class="modal fade" id="brModal" tabindex="-1" aria-labelledby="brModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="brModalLabel">Détails BR</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+        </div>
+        <div class="modal-body">
+          <form id="brForm">
+            <div class="mb-3">
+              <label for="brCount" class="form-label">Nombre de BR</label>
+              <input type="number" step="1" min="0" class="form-control" id="brCount">
+            </div>
+            <div class="mb-3">
+              <label for="brCountedAmount" class="form-label">Montant (scan + coupon)</label>
+              <input type="number" step="0.01" min="0" class="form-control" id="brCountedAmount">
+            </div>
+            <div class="mb-3">
+              <label for="brTicketAmount" class="form-label">Montant ticket</label>
+              <input type="number" step="0.01" min="0" class="form-control" id="brTicketAmount">
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+          <button type="button" class="btn btn-primary" onclick="saveBrDetails()">Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Modal CHQ -->
   <div class="modal fade" id="chqModal" tabindex="-1" aria-labelledby="chqModalLabel" aria-hidden="true">
@@ -360,6 +390,9 @@
 
   <script>
     let stepData = [];
+    let isBrSubmitted = false;
+    let isBrChecked = false;
+    let currentBrLine = null;
     let isChqSubmitted = false;
     let isChqChecked = false;
     let currentChqLine = null;
@@ -433,6 +466,12 @@
     }
 
     function syncSpecialCheckpointState() {
+      if (!hasSpecialCheckpoint("SPEBR")) {
+        isBrSubmitted = true;
+        isBrChecked = true;
+        currentBrLine = null;
+      }
+
       if (!hasSpecialCheckpoint("SPECHQ")) {
         isChqSubmitted = true;
         isChqChecked = true;
@@ -442,13 +481,11 @@
 
     function renderCheckpoints(step) {
       return step.checkpoints.map(cp => {
-        const uiType = cp.type === "SPEBR" ? "TEX" : cp.type;
+        const uiType = cp.type;
         const isTEX = uiType === "TEX";
         const hasAMO = uiType.includes("AMO");
         const hasNUM = uiType.includes("NUM");
 
-        /*
-        Version dépréciée :
         if (cp.type === "SPEBR") {
           return `
             <div class="d-flex align-items-center gap-2 mb-2 checkpoint-line" data-type="SPEBR">
@@ -456,7 +493,6 @@
               <button class="btn btn-info btn-sm" onclick="openBrModal(this)">Gérer BR</button>
             </div>`;
         }
-        */
 
         if (cp.type === "SPECHQ") {
           return `
@@ -477,7 +513,8 @@
                     onclick="toggleCheck(this)">
               ✓
             </button>
-            <button class="btn btn-outline-secondary btn-sm toggle-error-btn ${isTEX ? 'btn-disabled-fake" disabled' : ''}"
+            <button class="btn btn-outline-secondary btn-sm toggle-error-btn ${isTEX ? 'btn-disabled-fake' : ''}"
+                    ${isTEX ? 'disabled' : ''}
                     onclick="${isTEX ? '' : 'toggleError(this)'}">
               ✖️
             </button>
@@ -530,6 +567,17 @@
       btn.textContent = skip ? "Reprendre l'étape" : "Ignorer cette étape";
 
       const chqLine = cont.querySelector('[data-type="SPECHQ"]');
+      const brLine = cont.querySelector('[data-type="SPEBR"]');
+
+      if (brLine) {
+        isBrChecked = skip;
+        isBrSubmitted = skip;
+        const brBtn = brLine.querySelector('button.btn-info');
+        if (brBtn) brBtn.disabled = skip;
+        currentBrLine = skip ? brLine : null;
+        brLine.classList.toggle('br-saved', skip);
+      }
+
       if (chqLine) {
         isChqChecked = skip;
         isChqSubmitted = skip;
@@ -550,6 +598,7 @@
     }
 
     function isCheckpointResolved(line) {
+      if (line.dataset.type === 'SPEBR') return isBrChecked;
       if (line.dataset.type === 'SPECHQ') return isChqChecked;
       if (line.closest('.skipped-step')) return true;
       const checked = line.querySelector('.check-btn').classList.contains('btn-success');
@@ -563,7 +612,7 @@
       const rows = [];
 
       document.querySelectorAll('.checkpoint-line').forEach(line => {
-        if (line.dataset.type === 'SPECHQ' || line.closest('.skipped-step')) return;
+        if (line.dataset.type === 'SPEBR' || line.dataset.type === 'SPECHQ' || line.closest('.skipped-step')) return;
 
         const toggleErrBtn = line.querySelector('.toggle-error-btn');
         if (toggleErrBtn && toggleErrBtn.classList.contains('btn-danger')) {
@@ -590,12 +639,17 @@
       const okCais = !!document.getElementById('caisseInput').value;
       const okSup = !!document.getElementById('supervisorInput').value;
       const allCP = Array.from(document.querySelectorAll('.checkpoint-line')).every(isCheckpointResolved);
+      const brOK = isBrSubmitted || isBrChecked;
       const chqOK = isChqSubmitted || isChqChecked;
 
-      document.getElementById('submitBtn').disabled = !(okDate && okCais && okSup && allCP && chqOK);
+      document.getElementById('submitBtn').disabled = !(okDate && okCais && okSup && allCP && brOK && chqOK);
     }
 
     function submitEndShift() {
+      if (hasSpecialCheckpoint("SPEBR") && (!isBrChecked || !isBrSubmitted)) {
+        return alert("🚨 Veuillez d'abord gérer les BR avant de valider la fin de poste.");
+      }
+
       if (hasSpecialCheckpoint("SPECHQ") && (!isChqChecked || !isChqSubmitted)) {
         return alert("🚨 Veuillez d'abord gérer les chèques avant de valider la fin de poste.");
       }
@@ -633,14 +687,15 @@
       new bootstrap.Modal(document.getElementById('chqModal')).show();
     }
 
-    /*
-    Version dépréciée :
     function openBrModal(btn) {
       if (isBrSubmitted) return alert("🚫 BR déjà soumis.");
       const date = document.getElementById('incidentDate').value;
       const caisse = document.getElementById('caisseInput').value;
       if (!date || !caisse) return alert("📅 Sélectionnez date et caisse d'abord.");
       currentBrLine = btn.closest('.checkpoint-line');
+      document.getElementById('brCount').value = '';
+      document.getElementById('brCountedAmount').value = '';
+      document.getElementById('brTicketAmount').value = '';
       new bootstrap.Modal(document.getElementById('brModal')).show();
     }
 
@@ -648,9 +703,8 @@
       showLoader("Enregistrement BR…");
       const dateCode = document.getElementById('incidentDate').value.replace(/-/g,'');
       const caisse = document.getElementById('caisseInput').value;
-      const count = parseInt(document.getElementById('brCount').value, 10) || 0;
-      const ticketBR = parseFloat(document.getElementById('brTicketAmount').value) || 0;
       const countedTotal = parseFloat(document.getElementById('brCountedAmount').value) || 0;
+      const ticketBR = parseFloat(document.getElementById('brTicketAmount').value) || 0;
 
       google.script.run
         .withSuccessHandler(() => {
@@ -671,12 +725,11 @@
           caisse,
           ticketBR,
           sogec: countedTotal,
-          scan: 0,
+          scan: '-',
           numeric: (ticketBR - countedTotal).toFixed(2),
-          count
+          count: ''
         }]);
     }
-    */
 
     function saveChqDetails() {
       showLoader("Enregistrement Chèque…");

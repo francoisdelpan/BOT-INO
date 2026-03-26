@@ -8,7 +8,7 @@ function onOpen() {
     //.addItem("➕ Ajouter une journée de travail", "showAddEndShiftDialog")
     .addItem("🔄 Actualiser tous les keyCodes", "updateAllKeycodes")
     .addSeparator()
-    .addItem("1️⃣ Etat des BR (désactivé)", "showBRExportDeprecatedDialog")
+    .addItem("1️⃣ Etat des BR", "showBRExportDialog")
     .addItem("2️⃣ Etat des Chèques", "showChqExportDialog")
     .addItem("3️⃣ Etat du jour", "showDaysExportDialog")
     .addSeparator()
